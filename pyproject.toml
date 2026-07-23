@@ -4,9 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "qgis-agent-mcp"
-version = "0.1.0"
+version = "0.2.0"
 description = "A high-capability Model Context Protocol runtime for a live QGIS session"
-readme = "README.md"
+readme = {text = "A high-capability Model Context Protocol runtime for a live QGIS session.", content-type = "text/plain"}
 requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [{name = "QGIS MCP contributors"}]
@@ -28,4 +28,3 @@ where = ["src"]
 addopts = "-q"
 testpaths = ["tests"]
 asyncio_mode = "auto"
-
