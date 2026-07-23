@@ -1,0 +1,13 @@
+[general]
+name=QGIS Agent MCP
+description=High-capability local MCP bridge for the active QGIS session
+version=0.1.0
+qgisMinimumVersion=3.28
+author=QGIS MCP contributors
+email=
+about=Exposes structured project context, runtime capability discovery, Processing, PyQGIS, plugins, Qt UI, screenshots, logs, and managed operations to a local MCP server.
+category=Plugins
+experimental=True
+deprecated=False
+hasProcessingProvider=False
+
