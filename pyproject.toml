@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "qgis-agent-mcp"
-version = "0.2.0"
+version = "0.3.0"
 description = "A high-capability Model Context Protocol runtime for a live QGIS session"
 readme = {text = "A high-capability Model Context Protocol runtime for a live QGIS session.", content-type = "text/plain"}
 requires-python = ">=3.10"
@@ -13,7 +13,7 @@ authors = [{name = "QGIS MCP contributors"}]
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "pytest-asyncio>=0.23"]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.12"]
 
 [project.scripts]
 qgis-mcp = "qgis_mcp.__main__:main"
@@ -25,6 +25,14 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.pytest.ini_options]
-addopts = "-q"
+addopts = "-q --ignore=tests/qgis"
 testpaths = ["tests"]
 asyncio_mode = "auto"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+extend-exclude = ["dist", "benchmark-results"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]

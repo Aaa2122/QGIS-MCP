@@ -11,7 +11,6 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-
 SERVER_NAME = "qgis"
 MANAGED_BEGIN = "# BEGIN QGIS Agent MCP (managed automatically)"
 MANAGED_END = "# END QGIS Agent MCP"
@@ -313,7 +312,7 @@ def health_check(spec, timeout=15):
             "params": {
                 "protocolVersion": "2025-06-18",
                 "capabilities": {},
-                "clientInfo": {"name": "qgis-onboarding", "version": "0.2.0"},
+                "clientInfo": {"name": "qgis-onboarding", "version": "0.3.0"},
             },
         },
         {

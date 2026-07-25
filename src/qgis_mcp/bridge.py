@@ -10,6 +10,22 @@ from .errors import BRIDGE_ERROR, BRIDGE_UNAVAILABLE, RpcError
 
 EventHandler = Callable[[dict[str, Any]], Awaitable[None] | None]
 MAX_BRIDGE_RESPONSE_BYTES = 32 * 1024 * 1024
+RETRYABLE_METHODS = {
+    "session.snapshot",
+    "project.inspect",
+    "layer.inspect",
+    "feature.query",
+    "capabilities.search",
+    "capabilities.describe",
+    "ui.search",
+    "ui.screenshot",
+    "logs.read",
+    "handle.read",
+    "artifact.read",
+    "artifact.list",
+    "resources.list",
+    "resources.read",
+}
 
 
 class BridgeClient:
@@ -50,7 +66,10 @@ class BridgeClient:
                     "Cannot connect to the QGIS plugin bridge",
                     {"host": info.host, "port": info.port, "cause": str(exc)},
                 ) from exc
-            self._reader_task = asyncio.create_task(self._read_loop())
+            assert self._reader is not None and self._writer is not None
+            self._reader_task = asyncio.create_task(
+                self._read_loop(self._reader, self._writer)
+            )
             try:
                 hello = await self.request(
                     "bridge.hello",
@@ -97,8 +116,31 @@ class BridgeClient:
         *,
         timeout: float = 120,
         _connect: bool = True,
+        _retry: bool = True,
     ) -> Any:
-        if _connect and not self.connected:
+        retryable = (
+            method in RETRYABLE_METHODS
+            or (method == "operation.control" and (params or {}).get("action", "status") == "status")
+            or bool((params or {}).get("idempotency_key"))
+        )
+        try:
+            return await self._request_once(method, params, timeout=timeout, connect=_connect)
+        except RpcError as exc:
+            if not _retry or not _connect or not retryable or exc.code != BRIDGE_UNAVAILABLE:
+                raise
+            await self.close()
+            await asyncio.sleep(0.1)
+            return await self._request_once(method, params, timeout=timeout, connect=True)
+
+    async def _request_once(
+        self,
+        method: str,
+        params: dict[str, Any] | None,
+        *,
+        timeout: float,
+        connect: bool,
+    ) -> Any:
+        if connect and not self.connected:
             await self.connect()
         if self._writer is None:
             raise RpcError(BRIDGE_UNAVAILABLE, "QGIS bridge is not connected")
@@ -130,11 +172,12 @@ class BridgeClient:
                 {"method": method, "timeout_seconds": timeout},
             ) from exc
 
-    async def _read_loop(self) -> None:
+    async def _read_loop(
+        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
         try:
-            assert self._reader is not None
             while True:
-                line = await self._reader.readline()
+                line = await reader.readline()
                 if not line:
                     raise ConnectionError("QGIS bridge closed the connection")
                 try:
@@ -168,9 +211,11 @@ class BridgeClient:
             self._fail_pending(
                 RpcError(BRIDGE_UNAVAILABLE, "QGIS bridge connection failed", str(exc))
             )
-            if self._writer is not None:
-                self._writer.close()
-            self._writer = None
+            writer.close()
+            if self._writer is writer:
+                self._writer = None
+                self._reader = None
+                self._reader_task = None
 
     def _fail_pending(self, error: Exception) -> None:
         pending, self._pending = self._pending, {}

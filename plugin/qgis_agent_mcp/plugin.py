@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from qgis.core import Qgis
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction
-from qgis.core import Qgis
 
 from .bridge import LocalBridge
 from .connect_dialog import ConnectAiDialog

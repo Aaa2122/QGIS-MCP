@@ -32,7 +32,7 @@ def main() -> None:
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
-    output = args.output or root / "dist" / "qgis_agent_mcp-0.2.0.zip"
+    output = args.output or root / "dist" / "qgis_agent_mcp-0.3.0.zip"
     built = build_plugin(root, output.resolve())
     print("Built QGIS plugin package at {}".format(built))
 

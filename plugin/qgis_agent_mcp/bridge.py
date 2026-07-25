@@ -7,12 +7,11 @@ import tempfile
 import traceback
 from pathlib import Path
 
+from qgis.core import Qgis
 from qgis.PyQt.QtCore import QObject, QTimer
 from qgis.PyQt.QtNetwork import QHostAddress, QTcpServer
-from qgis.core import Qgis
 
 from .dispatcher import DispatchError
-
 
 MAX_MESSAGE_BYTES = 4 * 1024 * 1024
 PROTOCOL_VERSION = 1
@@ -150,15 +149,18 @@ class LocalBridge(QObject):
             )
 
     def _state_changed(self, change):
-        self.broadcast(
-            {
-                "type": "resource.updated",
-                "uri": "qgis://session",
-                "revision": change["revision"],
-                "change": change,
-            }
-        )
-        if change["event"].startswith(("layer.", "layers.", "project.cleared", "project.read")):
+        for uri, revision in change.get("resources", {"qgis://session": change["revision"]}).items():
+            self.broadcast(
+                {
+                    "type": "resource.updated",
+                    "uri": uri,
+                    "revision": revision,
+                    "change": change,
+                }
+            )
+        if change["event"].startswith(
+            ("layer.", "layers.", "operation.started", "project.cleared", "project.read")
+        ):
             self.broadcast({"type": "resources.changed", "revision": change["revision"]})
 
     def broadcast(self, event):
