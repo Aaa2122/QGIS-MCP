@@ -197,6 +197,8 @@ TOOLS: list[dict[str, Any]] = [
             {
                 "algorithm": {"type": "string"},
                 "parameters": {"type": "object"},
+                "retain_outputs": {"type": "boolean", "default": True},
+                "add_to_project": {"type": "boolean", "default": False},
             },
             ["algorithm", "parameters"],
         ),
@@ -263,6 +265,7 @@ TOOLS: list[dict[str, Any]] = [
             {
                 "target": {"type": "string", "default": "canvas"},
                 "max_width": {"type": "integer", "minimum": 64, "maximum": 4096, "default": 1600},
+                "as_artifact": {"type": "boolean", "default": False},
             }
         ),
     },
@@ -312,7 +315,71 @@ TOOLS: list[dict[str, Any]] = [
             ["calls"],
         ),
     },
+    {
+        "name": "qgis_artifact_read",
+        "description": "Read a bounded base64 chunk from a binary artifact retained inside QGIS.",
+        "inputSchema": _object(
+            {
+                "artifact_id": {"type": "string"},
+                "offset": {"type": "integer", "minimum": 0, "default": 0},
+                "length": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1048576,
+                    "default": 1048576,
+                },
+            },
+            ["artifact_id"],
+        ),
+    },
+    {
+        "name": "qgis_artifacts_list",
+        "description": "List live binary artifacts and their sizes, hashes, MIME types, and TTL.",
+        "inputSchema": _object({}),
+    },
+    {
+        "name": "qgis_artifact_release",
+        "description": "Release a retained binary artifact before its TTL expires.",
+        "inputSchema": _object(
+            {"artifact_id": {"type": "string"}}, ["artifact_id"]
+        ),
+    },
 ]
+
+_MUTATION_TOOLS = {
+    "qgis_project_action",
+    "qgis_selection_set",
+    "qgis_vector_edit",
+    "qgis_capability_invoke",
+    "qgis_processing_start",
+    "qgis_operation",
+    "qgis_python_exec",
+    "qgis_ui_invoke",
+    "qgis_batch",
+    "qgis_artifact_release",
+}
+for _tool in TOOLS:
+    if _tool["name"] in _MUTATION_TOOLS:
+        _tool["inputSchema"]["properties"].update(
+            {
+                "idempotency_key": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "description": "Replay key for safely retrying this mutation.",
+                },
+                "if_revision": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Require the current global session revision.",
+                },
+                "if_resource_revisions": {
+                    "type": "object",
+                    "additionalProperties": {"type": "integer", "minimum": 0},
+                    "description": "Require exact revisions for the named qgis:// resources.",
+                },
+            }
+        )
 
 TOOL_METHODS = {
     "qgis_session_snapshot": "session.snapshot",
@@ -334,4 +401,7 @@ TOOL_METHODS = {
     "qgis_logs": "logs.read",
     "qgis_handle_read": "handle.read",
     "qgis_batch": "batch.execute",
+    "qgis_artifact_read": "artifact.read",
+    "qgis_artifacts_list": "artifact.list",
+    "qgis_artifact_release": "artifact.release",
 }

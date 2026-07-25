@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from qgis.core import QgsApplication
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtWidgets import (
     QApplication,
@@ -16,7 +17,6 @@ from qgis.PyQt.QtWidgets import (
     QPushButton,
     QVBoxLayout,
 )
-from qgis.core import QgsApplication
 
 from .onboarding import (
     ClaudeCodeConnector,

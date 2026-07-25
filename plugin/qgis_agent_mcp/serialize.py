@@ -4,7 +4,6 @@ import base64
 import datetime
 import math
 
-from qgis.PyQt.QtCore import QByteArray, QDate, QDateTime, QTime
 from qgis.core import (
     QgsFieldConstraints,
     QgsMapLayer,
@@ -12,6 +11,7 @@ from qgis.core import (
     QgsVectorLayer,
     QgsWkbTypes,
 )
+from qgis.PyQt.QtCore import QByteArray, QDate, QDateTime, QTime
 
 
 def json_safe(value, depth=0):

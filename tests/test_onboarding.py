@@ -7,7 +7,6 @@ import zipfile
 from pathlib import Path
 
 import pytest
-
 from build_plugin import build_plugin
 from qgis_agent_mcp.onboarding import (
     MANAGED_BEGIN,
@@ -19,7 +18,6 @@ from qgis_agent_mcp.onboarding import (
     RuntimeManager,
     universal_config,
 )
-
 
 ROOT = Path(__file__).resolve().parents[1]
 

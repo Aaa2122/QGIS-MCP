@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import time
 
-from qgis.PyQt.QtCore import QObject, pyqtSignal
 from qgis.core import QgsProject
+from qgis.PyQt.QtCore import QObject, pyqtSignal
 
+from .revisions import ResourceRevisionIndex
 from .serialize import layer_summary
 
 
@@ -16,6 +17,7 @@ class StateTracker(QObject):
         self.iface = iface
         self.log = log
         self.revision = 0
+        self.resources = ResourceRevisionIndex()
         self.started_at = time.time()
         self._changes = []
         self._connections = []
@@ -39,7 +41,9 @@ class StateTracker(QObject):
         ):
             signal = getattr(project, signal_name, None)
             if signal is not None:
-                callback = lambda *args, _event=event: self.touch(_event, args)
+                def callback(*args, _event=event):
+                    self.touch(_event, args)
+
                 self._connect(signal, callback)
         self._connect(project.layersAdded, self._attach_layers)
         self._attach_layers(list(project.mapLayers().values()))
@@ -53,7 +57,9 @@ class StateTracker(QObject):
         ):
             signal = getattr(canvas, signal_name, None)
             if signal is not None:
-                callback = lambda *args, _event=event: self.touch(_event, None)
+                def callback(*args, _event=event):
+                    self.touch(_event, None)
+
                 self._connect(signal, callback)
         current_layer_changed = getattr(self.iface, "currentLayerChanged", None)
         if current_layer_changed is not None:
@@ -80,22 +86,26 @@ class StateTracker(QObject):
             ):
                 signal = getattr(layer, signal_name, None)
                 if signal is not None:
-                    callback = (
-                        lambda *args, _event=event, _id=layer.id(): self.touch(
-                            _event, {"layer_id": _id}
-                        )
-                    )
+                    def callback(*args, _event=event, _id=layer.id()):
+                        self.touch(_event, {"layer_id": _id})
+
                     signal.connect(callback)
                     connections.append((signal, callback))
             self._layer_connections[layer.id()] = connections
 
     def touch(self, event, data=None):
         self.revision += 1
+        compact_data = _compact(data)
+        affected = self.resources.affected(event, compact_data)
+        self.resources.bump(affected, self.revision)
         change = {
             "revision": self.revision,
             "time": time.time(),
             "event": event,
-            "data": _compact(data),
+            "data": compact_data,
+            "resources": {
+                uri: self.resources.revision(uri) for uri in affected
+            },
         }
         self._changes.append(change)
         if len(self._changes) > 1000:
@@ -114,6 +124,7 @@ class StateTracker(QObject):
         active = self.iface.activeLayer()
         result = {
             "revision": self.revision,
+            "resource_revisions": self.resources.snapshot(),
             "uptime_seconds": round(time.time() - self.started_at, 3),
             "project": {
                 "title": project.title(),
@@ -143,6 +154,9 @@ class StateTracker(QObject):
                 layer.id() for layer in canvas.layers()
             ]
         return result
+
+    def resource_revision(self, uri):
+        return self.resources.revision(uri)
 
     def close(self):
         for signal, callback in self._connections:

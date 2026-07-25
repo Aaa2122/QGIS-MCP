@@ -3,7 +3,6 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-
 IGNORED = shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo")
 
 

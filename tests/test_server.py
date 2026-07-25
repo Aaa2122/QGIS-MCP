@@ -8,7 +8,7 @@ import json
 import pytest
 
 from qgis_mcp.server import McpServer, StdioTransport
-from qgis_mcp.tool_catalog import TOOLS, TOOL_METHODS
+from qgis_mcp.tool_catalog import TOOL_METHODS, TOOLS
 
 
 class FakeBridge:

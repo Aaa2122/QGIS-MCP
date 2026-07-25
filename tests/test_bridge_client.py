@@ -77,3 +77,52 @@ async def test_bridge_auth_multiplexing_error_and_event():
         server.close()
         await server.wait_closed()
 
+
+@pytest.mark.asyncio
+async def test_bridge_reloads_connection_and_retries_after_qgis_restart(monkeypatch):
+    token_one = "a" * 64
+    token_two = "b" * 64
+    current = {}
+
+    async def healthy(reader, writer):
+        hello = json.loads(await reader.readline())
+        writer.write(
+            json.dumps({"jsonrpc": "2.0", "id": hello["id"], "result": {"authenticated": True}}).encode()
+            + b"\n"
+        )
+        await writer.drain()
+        request = json.loads(await reader.readline())
+        writer.write(
+            json.dumps({"jsonrpc": "2.0", "id": request["id"], "result": {"qgis": "restarted"}}).encode()
+            + b"\n"
+        )
+        await writer.drain()
+
+    second = await asyncio.start_server(healthy, "127.0.0.1", 0)
+    second_port = second.sockets[0].getsockname()[1]
+
+    async def failing(reader, writer):
+        hello = json.loads(await reader.readline())
+        writer.write(
+            json.dumps({"jsonrpc": "2.0", "id": hello["id"], "result": {"authenticated": True}}).encode()
+            + b"\n"
+        )
+        await writer.drain()
+        await reader.readline()
+        current["info"] = ConnectionInfo("127.0.0.1", second_port, token_two)
+        writer.close()
+        await writer.wait_closed()
+
+    first = await asyncio.start_server(failing, "127.0.0.1", 0)
+    first_port = first.sockets[0].getsockname()[1]
+    current["info"] = ConnectionInfo("127.0.0.1", first_port, token_one)
+    monkeypatch.setattr("qgis_mcp.bridge.load_connection_info", lambda: current["info"])
+    client = BridgeClient()
+    try:
+        assert await client.request("session.snapshot") == {"qgis": "restarted"}
+    finally:
+        await client.close()
+        first.close()
+        second.close()
+        await first.wait_closed()
+        await second.wait_closed()

@@ -11,7 +11,7 @@ from typing import Any, BinaryIO
 from . import __version__
 from .bridge import BridgeClient
 from .errors import INTERNAL_ERROR, INVALID_PARAMS, METHOD_NOT_FOUND, RpcError
-from .tool_catalog import TOOLS, TOOL_METHODS
+from .tool_catalog import TOOL_METHODS, TOOLS
 
 LOGGER = logging.getLogger(__name__)
 SUPPORTED_PROTOCOLS = ("2025-06-18", "2025-03-26", "2024-11-05")
@@ -178,7 +178,8 @@ class McpServer:
         ]
         if isinstance(dynamic, list):
             resources.extend(dynamic)
-        return {"resources": resources}
+        by_uri = {resource["uri"]: resource for resource in resources}
+        return {"resources": list(by_uri.values())}
 
     async def _resource_read(self, params: dict[str, Any]) -> dict[str, Any]:
         uri = params.get("uri")

@@ -1,7 +1,7 @@
 [general]
 name=QGIS Agent MCP
 description=High-capability local MCP bridge for the active QGIS session
-version=0.2.0
+version=0.3.0
 qgisMinimumVersion=3.28
 author=QGIS MCP contributors
 email=
