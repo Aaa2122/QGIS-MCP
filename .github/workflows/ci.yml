@@ -8,10 +8,15 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   python:
     name: Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -51,7 +56,7 @@ jobs:
             -e PYTHONPATH=/workspace/src:/workspace/plugin:/workspace \
             -e QGIS_MCP_CONNECTION_FILE=/tmp/qgis-mcp-connection.json \
             -e QGIS_MCP_BENCHMARK_OUTPUT=/workspace/benchmark-results/qgis-ltr.json \
-            qgis-ltr bash -lc "cd /workspace && qgis_testrunner.sh tests.qgis.run_all"
+            qgis-ltr bash -lc "cd /workspace && timeout 180s qgis --version-migration --nologo --code /usr/bin/qgis_testrunner.py tests.qgis.run_all"
       - name: Upload latency baseline
         if: always()
         uses: actions/upload-artifact@v4
@@ -62,4 +67,3 @@ jobs:
       - name: Stop QGIS container
         if: always()
         run: docker rm -f qgis-ltr
-
