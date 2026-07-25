@@ -56,7 +56,8 @@ jobs:
             -e PYTHONPATH=/workspace/src:/workspace/plugin:/workspace \
             -e QGIS_MCP_CONNECTION_FILE=/tmp/qgis-mcp-connection.json \
             -e QGIS_MCP_BENCHMARK_OUTPUT=/workspace/benchmark-results/qgis-ltr.json \
-            qgis-ltr bash -lc "cd /workspace && timeout 180s qgis --version-migration --nologo --code /usr/bin/qgis_testrunner.py tests.qgis.run_all"
+            -e QT_QPA_PLATFORM=xcb \
+            qgis-ltr bash -lc "cd /workspace && timeout 180s xvfb-run -a -s '-screen 0 1920x1080x24' qgis --version-migration --nologo --code /usr/bin/qgis_testrunner.py tests.qgis.run_all"
       - name: Upload latency baseline
         if: always()
         uses: actions/upload-artifact@v4
