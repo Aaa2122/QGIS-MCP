@@ -76,6 +76,16 @@ SPECIALIZED_DATA_TOOLS = {
     "qgis_elevation": "layer.elevation",
 }
 
+ECOSYSTEM_TOOLS = {
+    "qgis_plugins": "ecosystem.plugins",
+    "qgis_settings": "ecosystem.settings",
+    "qgis_shortcuts": "ecosystem.shortcuts",
+    "qgis_gps": "ecosystem.gps",
+    "qgis_3d_views": "ecosystem.3d",
+    "qgis_server": "ecosystem.server",
+    "qgis_offline": "ecosystem.offline",
+}
+
 
 def test_runtime_tool_families_are_public_and_routed():
     by_name = {tool["name"]: tool for tool in TOOLS}
@@ -130,4 +140,11 @@ def test_specialized_data_tool_families_are_public_and_routed():
         name: TOOL_METHODS[name] for name in SPECIALIZED_DATA_TOOLS
     } == SPECIALIZED_DATA_TOOLS
     for name in SPECIALIZED_DATA_TOOLS:
+        assert by_name[name]["inputSchema"]["additionalProperties"] is False
+
+
+def test_ecosystem_tool_families_are_public_and_routed():
+    by_name = {tool["name"]: tool for tool in TOOLS}
+    assert {name: TOOL_METHODS[name] for name in ECOSYSTEM_TOOLS} == ECOSYSTEM_TOOLS
+    for name in ECOSYSTEM_TOOLS:
         assert by_name[name]["inputSchema"]["additionalProperties"] is False

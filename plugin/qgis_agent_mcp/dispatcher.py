@@ -36,6 +36,7 @@ from .capabilities import CapabilityIndex, ObjectRegistry
 from .cartography import CartographyManager, LayoutManager, ProjectLayerManager
 from .connectors import FireMapManager
 from .data_sources import DataAcquisitionManager
+from .ecosystem_tools import EcosystemTools
 from .operations import OperationManager
 from .processing_database_tools import ProcessingDatabaseTools
 from .project_tools import ProjectTools
@@ -125,6 +126,13 @@ MUTATION_METHODS = {
     "tiled_scene.control",
     "layer.temporal",
     "layer.elevation",
+    "ecosystem.plugins",
+    "ecosystem.settings",
+    "ecosystem.shortcuts",
+    "ecosystem.gps",
+    "ecosystem.3d",
+    "ecosystem.server",
+    "ecosystem.offline",
 }
 
 
@@ -261,6 +269,13 @@ class Dispatcher:
             "tiled_scene.control": self.specialized_tiled_scene,
             "layer.temporal": self.specialized_temporal,
             "layer.elevation": self.specialized_elevation,
+            "ecosystem.plugins": self.ecosystem_plugins,
+            "ecosystem.settings": self.ecosystem_settings,
+            "ecosystem.shortcuts": self.ecosystem_shortcuts,
+            "ecosystem.gps": self.ecosystem_gps,
+            "ecosystem.3d": self.ecosystem_3d,
+            "ecosystem.server": self.ecosystem_server,
+            "ecosystem.offline": self.ecosystem_offline,
             "resources.list": self.resources_list,
             "resources.read": self.resources_read,
         }
@@ -284,6 +299,7 @@ class Dispatcher:
             self.state, self._layer
         )
         self.specialized_data_tools = SpecializedDataTools(self.state, self._layer)
+        self.ecosystem_tools = EcosystemTools(iface, self.state)
         self.workflows = WorkflowManager(
             self.dispatch, self.checkpoints, self.state, self.log
         )
@@ -1195,6 +1211,27 @@ class Dispatcher:
 
     def specialized_elevation(self, **params):
         return self.specialized_data_tools.elevation(**params)
+
+    def ecosystem_plugins(self, **params):
+        return self.ecosystem_tools.plugins(**params)
+
+    def ecosystem_settings(self, **params):
+        return self.ecosystem_tools.settings(**params)
+
+    def ecosystem_shortcuts(self, **params):
+        return self.ecosystem_tools.shortcuts(**params)
+
+    def ecosystem_gps(self, **params):
+        return self.ecosystem_tools.gps(**params)
+
+    def ecosystem_3d(self, **params):
+        return self.ecosystem_tools.views_3d(**params)
+
+    def ecosystem_server(self, **params):
+        return self.ecosystem_tools.server(**params)
+
+    def ecosystem_offline(self, **params):
+        return self.ecosystem_tools.offline(**params)
 
     def resources_list(self):
         resources = [
