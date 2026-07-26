@@ -2,28 +2,34 @@ from __future__ import annotations
 
 import time
 import uuid
+from pathlib import Path
 
-from qgis.PyQt.QtCore import QTimer
 from qgis.core import (
     QgsApplication,
     QgsMapLayer,
+    QgsMapLayerStore,
     QgsProcessingAlgorithm,
     QgsProcessingAlgRunnerTask,
     QgsProcessingContext,
     QgsProcessingFeedback,
     QgsProject,
 )
+from qgis.PyQt.QtCore import QTimer
 
 from .serialize import json_safe
 
 
 class OperationManager:
-    def __init__(self, log, state):
+    def __init__(self, log, state, artifacts=None):
         self.log = log
         self.state = state
+        self.artifacts = artifacts
         self._operations = {}
+        self._result_layers = QgsMapLayerStore()
 
-    def start_processing(self, algorithm_id, parameters):
+    def start_processing(
+        self, algorithm_id, parameters, retain_outputs=True, add_to_project=False
+    ):
         registry = QgsApplication.processingRegistry()
         algorithm = registry.algorithmById(algorithm_id)
         if algorithm is None:
@@ -44,6 +50,8 @@ class OperationManager:
             "created": time.time(),
             "updated": time.time(),
             "parameters": json_safe(parameters),
+            "retain_outputs": bool(retain_outputs),
+            "add_to_project": bool(add_to_project),
             "execution": "main_thread" if no_threading else "background_task",
             "_context": context,
             "_feedback": feedback,
@@ -65,6 +73,7 @@ class OperationManager:
                 "Queued {} on the QGIS main thread".format(algorithm_id),
                 data={"id": operation_id},
             )
+            self.state.touch("operation.started", {"id": operation_id})
             return self.public(operation)
 
         task = QgsProcessingAlgRunnerTask(algorithm, parameters, context, feedback)
@@ -92,6 +101,7 @@ class OperationManager:
         )
         QgsApplication.taskManager().addTask(task)
         self.log.add("operation", "Started {}".format(algorithm_id), data={"id": operation_id})
+        self.state.touch("operation.started", {"id": operation_id})
         return self.public(operation)
 
     def _run_main_thread(self, operation_id, algorithm_id, parameters):
@@ -160,6 +170,7 @@ class OperationManager:
         operation["progress"] = 100.0 if successful else operation["progress"]
         operation["updated"] = time.time()
         operation["result"] = json_safe(results)
+        operation["retained_outputs"] = self._retain_outputs(operation, results)
         try:
             operation["feedback_log"] = operation["_feedback"].textLog()
         except Exception:
@@ -174,6 +185,68 @@ class OperationManager:
             "operation.finished",
             {"id": operation_id, "status": operation["status"]},
         )
+
+    def _retain_outputs(self, operation, results):
+        retained = {}
+        context = operation["_context"]
+        project = QgsProject.instance()
+        for name, value in (results or {}).items():
+            layer = value if isinstance(value, QgsMapLayer) else None
+            if layer is None and isinstance(value, str):
+                try:
+                    layer = context.getMapLayer(value)
+                except Exception:
+                    layer = None
+            if layer is not None and operation["retain_outputs"]:
+                try:
+                    owned = context.takeResultLayer(layer.id()) or layer
+                except Exception:
+                    owned = layer
+                if operation["add_to_project"]:
+                    if project.mapLayer(owned.id()) is None:
+                        project.addMapLayer(owned)
+                elif self._result_layers.mapLayer(owned.id()) is None:
+                    self._result_layers.addMapLayer(owned)
+                retained[name] = {
+                    "kind": "layer",
+                    "layer_id": owned.id(),
+                    "name": owned.name(),
+                    "temporary": bool(
+                        getattr(owned, "isTemporary", lambda: not bool(owned.source()))()
+                    ),
+                    "resource_uri": "qgis://layers/{}".format(owned.id()),
+                    "ownership": "project" if operation["add_to_project"] else "operation_store",
+                }
+                self.state.touch("layer.retained", {"layer_id": owned.id()})
+                continue
+            if (
+                self.artifacts is not None
+                and operation["retain_outputs"]
+                and isinstance(value, str)
+                and Path(value).is_file()
+            ):
+                try:
+                    retained[name] = {
+                        "kind": "artifact",
+                        **self.artifacts.put_file(
+                            value,
+                            metadata={"operation_id": operation["id"], "output": name},
+                        ),
+                    }
+                except (OSError, ValueError) as exc:
+                    retained[name] = {
+                        "kind": "file",
+                        "path": value,
+                        "retained": False,
+                        "reason": str(exc),
+                    }
+        return retained
+
+    def map_layer(self, layer_id):
+        return self._result_layers.mapLayer(layer_id)
+
+    def retained_layers(self):
+        return list(self._result_layers.mapLayers().values())
 
     @staticmethod
     def public(operation):

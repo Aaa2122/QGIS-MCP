@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import inspect
 
+import qgis.utils
+from qgis.core import QgsApplication, QgsProject
 from qgis.PyQt.QtCore import QObject
 from qgis.PyQt.QtWidgets import QAction, QApplication, QWidget
-from qgis.core import QgsApplication, QgsProject
-import qgis.utils
+
+from .processing_schema import algorithm_schemas
 
 
 class ObjectRegistry:
@@ -156,6 +158,7 @@ class CapabilityIndex:
             algorithm = QgsApplication.processingRegistry().algorithmById(capability_id)
             if algorithm is None:
                 raise KeyError("Processing algorithm not found")
+            schemas = algorithm_schemas(algorithm)
             return {
                 "kind": kind,
                 "id": algorithm.id(),
@@ -165,7 +168,7 @@ class CapabilityIndex:
                 "group": algorithm.group(),
                 "provider": algorithm.provider().id() if algorithm.provider() else None,
                 "flags": int(algorithm.flags()),
-                "parameters": [_parameter(item) for item in algorithm.parameterDefinitions()],
+                **schemas,
                 "outputs": [_output(item) for item in algorithm.outputDefinitions()],
             }
         if kind == "plugin":
