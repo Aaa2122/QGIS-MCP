@@ -771,6 +771,41 @@ class QgisRuntimeTest(unittest.TestCase):
                 QgsProject.instance().layoutManager().removeLayout(layout)
             QgsProject.instance().removeMapLayer(layer.id())
 
+    def test_15_specialized_layer_capabilities_temporal_and_elevation(self):
+        dispatcher = qgis.utils.plugins["qgis_agent_mcp"].dispatcher
+        layer = QgsVectorLayer("Point?crs=EPSG:4326", "specialized-data", "memory")
+        QgsProject.instance().addMapLayer(layer)
+        try:
+            properties = dispatcher.dispatch(
+                "layer.properties",
+                {
+                    "layer": layer.id(),
+                    "action": "set",
+                    "opacity": 0.7,
+                    "scale_based_visibility": True,
+                    "minimum_scale": 1000,
+                    "maximum_scale": 100000,
+                },
+            )
+            self.assertAlmostEqual(properties["opacity"], 0.7)
+            self.assertTrue(properties["scale_based_visibility"])
+            capabilities = dispatcher.dispatch(
+                "layer.capabilities",
+                {"layer": layer.id(), "query": "feature", "limit": 100},
+            )
+            self.assertTrue(any("feature" in item.casefold() for item in capabilities["methods"]))
+            temporal = dispatcher.dispatch(
+                "layer.temporal",
+                {"layer": layer.id(), "action": "set_active", "enabled": True},
+            )
+            self.assertTrue(temporal["active"])
+            elevation = dispatcher.dispatch(
+                "layer.elevation", {"layer": layer.id(), "action": "inspect"}
+            )
+            self.assertEqual(elevation["layer_id"], layer.id())
+        finally:
+            QgsProject.instance().removeMapLayer(layer.id())
+
 
 def _rpc(process, request, timeout_ms=15000):
     process.write((json.dumps(request, separators=(",", ":")) + "\n").encode("utf-8"))

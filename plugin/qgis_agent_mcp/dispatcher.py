@@ -58,6 +58,7 @@ from .serialize import (
     layer_summary,
     renderer_summary,
 )
+from .specialized_data_tools import SpecializedDataTools
 from .state import StateTracker
 from .store import ArtifactStore, EventLog, HandleStore
 from .vector_raster_tools import VectorRasterTools
@@ -116,6 +117,14 @@ MUTATION_METHODS = {
     "cartography.labeling",
     "layout.item",
     "layout.atlas",
+    "layer.properties",
+    "raster.style",
+    "mesh.control",
+    "point_cloud.control",
+    "vector_tile.control",
+    "tiled_scene.control",
+    "layer.temporal",
+    "layer.elevation",
 }
 
 
@@ -243,6 +252,15 @@ class Dispatcher:
             "layout.item": self.layout_item,
             "layout.atlas": self.layout_atlas,
             "layout.validate": self.layout_validate,
+            "layer.properties": self.specialized_layer_properties,
+            "layer.capabilities": self.specialized_layer_capabilities,
+            "raster.style": self.specialized_raster_style,
+            "mesh.control": self.specialized_mesh,
+            "point_cloud.control": self.specialized_point_cloud,
+            "vector_tile.control": self.specialized_vector_tiles,
+            "tiled_scene.control": self.specialized_tiled_scene,
+            "layer.temporal": self.specialized_temporal,
+            "layer.elevation": self.specialized_elevation,
             "resources.list": self.resources_list,
             "resources.read": self.resources_read,
         }
@@ -265,6 +283,7 @@ class Dispatcher:
         self.advanced_cartography = AdvancedCartographyTools(
             self.state, self._layer
         )
+        self.specialized_data_tools = SpecializedDataTools(self.state, self._layer)
         self.workflows = WorkflowManager(
             self.dispatch, self.checkpoints, self.state, self.log
         )
@@ -1149,6 +1168,33 @@ class Dispatcher:
 
     def layout_validate(self, **params):
         return self.advanced_cartography.layout_validate(**params)
+
+    def specialized_layer_properties(self, **params):
+        return self.specialized_data_tools.layer_properties(**params)
+
+    def specialized_layer_capabilities(self, **params):
+        return self.specialized_data_tools.capabilities(**params)
+
+    def specialized_raster_style(self, **params):
+        return self.specialized_data_tools.raster_style(**params)
+
+    def specialized_mesh(self, **params):
+        return self.specialized_data_tools.mesh(**params)
+
+    def specialized_point_cloud(self, **params):
+        return self.specialized_data_tools.point_cloud(**params)
+
+    def specialized_vector_tiles(self, **params):
+        return self.specialized_data_tools.vector_tiles(**params)
+
+    def specialized_tiled_scene(self, **params):
+        return self.specialized_data_tools.tiled_scene(**params)
+
+    def specialized_temporal(self, **params):
+        return self.specialized_data_tools.temporal(**params)
+
+    def specialized_elevation(self, **params):
+        return self.specialized_data_tools.elevation(**params)
 
     def resources_list(self):
         resources = [
