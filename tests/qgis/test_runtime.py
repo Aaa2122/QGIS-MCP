@@ -806,6 +806,42 @@ class QgisRuntimeTest(unittest.TestCase):
         finally:
             QgsProject.instance().removeMapLayer(layer.id())
 
+    def test_16_ecosystem_settings_plugins_gps_server_and_offline(self):
+        dispatcher = qgis.utils.plugins["qgis_agent_mcp"].dispatcher
+        settings_key = "qgis_agent_mcp/tests/ecosystem_roundtrip"
+        try:
+            plugins = dispatcher.dispatch(
+                "ecosystem.plugins", {"action": "list", "query": "qgis agent", "limit": 50}
+            )
+            self.assertIn(
+                "qgis_agent_mcp", {item["package"] for item in plugins["plugins"]}
+            )
+            stored = dispatcher.dispatch(
+                "ecosystem.settings",
+                {"action": "set", "key": settings_key, "value": {"enabled": True}},
+            )
+            self.assertTrue(stored["present"])
+            loaded = dispatcher.dispatch(
+                "ecosystem.settings", {"action": "get", "key": settings_key}
+            )
+            self.assertEqual(loaded["value"], {"enabled": True})
+            shortcuts = dispatcher.dispatch(
+                "ecosystem.shortcuts", {"action": "list", "limit": 10}
+            )
+            self.assertIn("shortcuts", shortcuts)
+            gps = dispatcher.dispatch("ecosystem.gps", {"action": "status"})
+            self.assertIn("connections", gps)
+            views = dispatcher.dispatch("ecosystem.3d", {"action": "list"})
+            self.assertIn("views", views)
+            server = dispatcher.dispatch("ecosystem.server", {"action": "validate"})
+            self.assertIn("valid", server)
+            offline = dispatcher.dispatch("ecosystem.offline", {"action": "status"})
+            self.assertIn("actions", offline)
+        finally:
+            dispatcher.dispatch(
+                "ecosystem.settings", {"action": "remove", "key": settings_key}
+            )
+
 
 def _rpc(process, request, timeout_ms=15000):
     process.write((json.dumps(request, separators=(",", ":")) + "\n").encode("utf-8"))

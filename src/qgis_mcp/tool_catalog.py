@@ -1517,6 +1517,113 @@ TOOLS.extend(
     ]
 )
 
+TOOLS.extend(
+    [
+        {
+            "name": "qgis_plugins",
+            "description": "List, enable, disable, reload, or refresh installed Python plugins and open the QGIS plugin manager.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["list", "enable", "disable", "reload", "refresh_catalog", "show_manager"], "default": "list"},
+                    "plugin": {"type": "string"},
+                    "query": {"type": "string", "default": ""},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 300},
+                }
+            ),
+        },
+        {
+            "name": "qgis_settings",
+            "description": "List, read, set, or remove QGIS settings; secret-like values are always redacted from responses.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["list", "get", "set", "remove"], "default": "list"},
+                    "key": {"type": "string"},
+                    "value": {},
+                    "prefix": {"type": "string", "default": ""},
+                    "query": {"type": "string", "default": ""},
+                    "include_values": {"type": "boolean", "default": False},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 2000, "default": 300},
+                }
+            ),
+        },
+        {
+            "name": "qgis_shortcuts",
+            "description": "List, set, clear, or reset registered QGIS action and widget keyboard shortcuts.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["list", "set", "clear", "reset"], "default": "list"},
+                    "name": {"type": "string"},
+                    "sequence": {"type": "string"},
+                    "query": {"type": "string", "default": ""},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 300},
+                }
+            ),
+        },
+        {
+            "name": "qgis_gps",
+            "description": "Inspect GPS/GNSS devices and fixes, enumerate serial ports, connect to gpsd, or connect, disconnect, and unregister live connections.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["status", "ports", "connect_gpsd", "connect", "disconnect", "unregister"], "default": "status"},
+                    "connection_index": {"type": "integer", "minimum": 0},
+                    "host": {"type": "string", "default": "127.0.0.1"},
+                    "port": {"type": "integer", "minimum": 1, "maximum": 65535, "default": 2947},
+                    "device": {"type": "string", "default": ""},
+                }
+            ),
+        },
+        {
+            "name": "qgis_3d_views",
+            "description": "List, create, configure, or close QGIS 3D map views, including layers, terrain, skybox, labels, eye-dome lighting, and camera settings.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["list", "create", "configure", "close"], "default": "list"},
+                    "name": {"type": "string"},
+                    "background_color": {"type": "string"},
+                    "show_labels": {"type": "boolean"},
+                    "field_of_view": {"type": "number", "exclusiveMinimum": 0, "maximum": 180},
+                    "movement_speed": {"type": "number", "exclusiveMinimum": 0},
+                    "terrain_enabled": {"type": "boolean"},
+                    "skybox_enabled": {"type": "boolean"},
+                    "eye_dome_lighting": {"type": "boolean"},
+                    "layers": {"type": "array", "items": {"type": "string"}},
+                }
+            ),
+        },
+        {
+            "name": "qgis_server",
+            "description": "Validate the active project for QGIS Server or inspect and configure per-layer WMS/WFS publication metadata.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["validate", "inspect_layer", "set_layer"], "default": "validate"},
+                    "layer": {"type": "string"},
+                    "short_name": {"type": "string"},
+                    "title": {"type": "string"},
+                    "wfs_title": {"type": "string"},
+                    "abstract": {"type": "string"},
+                    "keywords": {"type": "string"},
+                    "attribution": {"type": "string"},
+                    "attribution_url": {"type": "string"},
+                    "data_url": {"type": "string"},
+                    "data_url_format": {"type": "string"},
+                    "legend_url": {"type": "string"},
+                    "legend_url_format": {"type": "string"},
+                }
+            ),
+        },
+        {
+            "name": "qgis_offline",
+            "description": "Inspect available Offline Editing and synchronization actions or trigger an explicitly named enabled offline action.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["status", "trigger"], "default": "status"},
+                    "action_name": {"type": "string"},
+                }
+            ),
+        },
+    ]
+)
+
 _MUTATION_TOOLS = {
     "qgis_project_action",
     "qgis_selection_set",
@@ -1577,6 +1684,13 @@ _MUTATION_TOOLS = {
     "qgis_tiled_scene",
     "qgis_temporal",
     "qgis_elevation",
+    "qgis_plugins",
+    "qgis_settings",
+    "qgis_shortcuts",
+    "qgis_gps",
+    "qgis_3d_views",
+    "qgis_server",
+    "qgis_offline",
 }
 for _tool in TOOLS:
     if _tool["name"] in _MUTATION_TOOLS:
@@ -1699,4 +1813,11 @@ TOOL_METHODS = {
     "qgis_tiled_scene": "tiled_scene.control",
     "qgis_temporal": "layer.temporal",
     "qgis_elevation": "layer.elevation",
+    "qgis_plugins": "ecosystem.plugins",
+    "qgis_settings": "ecosystem.settings",
+    "qgis_shortcuts": "ecosystem.shortcuts",
+    "qgis_gps": "ecosystem.gps",
+    "qgis_3d_views": "ecosystem.3d",
+    "qgis_server": "ecosystem.server",
+    "qgis_offline": "ecosystem.offline",
 }
