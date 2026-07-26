@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import base64
+import hashlib
+import mimetypes
 import time
 import uuid
-from collections import deque
+from collections import OrderedDict, deque
+from pathlib import Path
 
 
 class EventLog:
@@ -103,3 +107,111 @@ class HandleStore:
         for key in expired:
             self._values.pop(key, None)
 
+
+class ArtifactStore:
+    """TTL/LRU registry with hard per-item, total-size, and read bounds."""
+
+    def __init__(
+        self,
+        ttl_seconds=900,
+        max_items=128,
+        max_item_bytes=32 * 1024 * 1024,
+        max_total_bytes=64 * 1024 * 1024,
+        max_read_bytes=1024 * 1024,
+    ):
+        self.ttl_seconds = int(ttl_seconds)
+        self.max_items = int(max_items)
+        self.max_item_bytes = int(max_item_bytes)
+        self.max_total_bytes = int(max_total_bytes)
+        self.max_read_bytes = int(max_read_bytes)
+        self._values = OrderedDict()
+        self._total_bytes = 0
+
+    def put_bytes(self, value, mime_type="application/octet-stream", name=None, metadata=None):
+        payload = bytes(value)
+        if len(payload) > self.max_item_bytes:
+            raise ValueError("Artifact exceeds the per-item size limit")
+        self.prune()
+        while self._values and (
+            len(self._values) >= self.max_items
+            or self._total_bytes + len(payload) > self.max_total_bytes
+        ):
+            self._evict_oldest()
+        if len(payload) > self.max_total_bytes:
+            raise ValueError("Artifact exceeds the registry size limit")
+        artifact_id = "a_" + uuid.uuid4().hex
+        entry = {
+            "created": time.monotonic(),
+            "data": payload,
+            "mime_type": mime_type or "application/octet-stream",
+            "name": name,
+            "metadata": metadata or {},
+            "sha256": hashlib.sha256(payload).hexdigest(),
+        }
+        self._values[artifact_id] = entry
+        self._total_bytes += len(payload)
+        return self._descriptor(artifact_id, entry)
+
+    def put_file(self, path, mime_type=None, name=None, metadata=None):
+        source = Path(path)
+        size = source.stat().st_size
+        if size > self.max_item_bytes:
+            raise ValueError("Artifact exceeds the per-item size limit")
+        return self.put_bytes(
+            source.read_bytes(),
+            mime_type or mimetypes.guess_type(source.name)[0],
+            name or source.name,
+            {**(metadata or {}), "source": str(source)},
+        )
+
+    def read(self, artifact_id, offset=0, length=None):
+        self.prune()
+        entry = self._values.get(artifact_id)
+        if entry is None:
+            raise KeyError("Unknown or expired artifact")
+        offset = max(0, int(offset))
+        requested = self.max_read_bytes if length is None else int(length)
+        length = max(0, min(requested, self.max_read_bytes))
+        data = entry["data"]
+        chunk = data[offset : offset + length]
+        self._values.move_to_end(artifact_id)
+        return {
+            **self._descriptor(artifact_id, entry),
+            "offset": offset,
+            "length": len(chunk),
+            "data": base64.b64encode(chunk).decode("ascii"),
+            "encoding": "base64",
+            "eof": offset + len(chunk) >= len(data),
+        }
+
+    def list(self):
+        self.prune()
+        return [self._descriptor(key, value) for key, value in self._values.items()]
+
+    def release(self, artifact_id):
+        entry = self._values.pop(artifact_id, None)
+        if entry is None:
+            return False
+        self._total_bytes -= len(entry["data"])
+        return True
+
+    def prune(self):
+        now = time.monotonic()
+        for key in list(self._values):
+            if now - self._values[key]["created"] > self.ttl_seconds:
+                self.release(key)
+
+    def _evict_oldest(self):
+        key = next(iter(self._values))
+        self.release(key)
+
+    def _descriptor(self, artifact_id, entry):
+        return {
+            "artifact_id": artifact_id,
+            "name": entry["name"],
+            "mime_type": entry["mime_type"],
+            "size": len(entry["data"]),
+            "sha256": entry["sha256"],
+            "ttl_seconds": self.ttl_seconds,
+            "metadata": entry["metadata"],
+        }

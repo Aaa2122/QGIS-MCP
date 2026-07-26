@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-
 DEFAULT_CONNECTION_FILE = Path.home() / ".qgis-mcp" / "connection.json"
 
 

@@ -7,20 +7,8 @@ import os
 import sys
 import time
 import traceback
-from urllib.parse import quote, unquote, urlparse
+from urllib.parse import unquote, urlparse
 
-from qgis.PyQt.QtCore import QBuffer, QIODevice, Qt
-from qgis.PyQt.QtWidgets import (
-    QAction,
-    QAbstractButton,
-    QCheckBox,
-    QComboBox,
-    QLineEdit,
-    QMainWindow,
-    QSpinBox,
-    QDoubleSpinBox,
-    QWidget,
-)
 from qgis.core import (
     Qgis,
     QgsExpression,
@@ -31,9 +19,34 @@ from qgis.core import (
     QgsRasterLayer,
     QgsVectorLayer,
 )
+from qgis.PyQt.QtCore import QBuffer, QIODevice, Qt
+from qgis.PyQt.QtWidgets import (
+    QAbstractButton,
+    QAction,
+    QComboBox,
+    QDoubleSpinBox,
+    QLineEdit,
+    QMainWindow,
+    QSpinBox,
+    QWidget,
+)
 
 from .capabilities import CapabilityIndex, ObjectRegistry
+from .cartography import CartographyManager, LayoutManager, ProjectLayerManager
+from .connectors import FireMapManager
+from .data_sources import DataAcquisitionManager
 from .operations import OperationManager
+from .reliability import IdempotencyConflict, MutationGuard
+from .revisions import (
+    CAPABILITIES_URI,
+    LAYER_TREE_URI,
+    LOGS_URI,
+    PROJECT_URI,
+    SESSION_URI,
+    layer_uri,
+    operation_uri,
+)
+from .safety import CheckpointManager, ProjectVerifier
 from .serialize import (
     feature_summary,
     field_schema,
@@ -42,9 +55,32 @@ from .serialize import (
     renderer_summary,
 )
 from .state import StateTracker
-from .store import EventLog, HandleStore
+from .store import ArtifactStore, EventLog, HandleStore
+from .workflows import WorkflowManager
 
 MAX_INLINE_RESULT_BYTES = 1024 * 1024
+MUTATION_METHODS = {
+    "project.action",
+    "selection.set",
+    "vector.edit",
+    "capabilities.invoke",
+    "processing.start",
+    "operation.control",
+    "python.exec",
+    "ui.invoke",
+    "batch.execute",
+    "artifact.release",
+    "data.fetch",
+    "data.service",
+    "data.refresh",
+    "layer.manage",
+    "cartography.style",
+    "cartography.labels",
+    "layout.execute",
+    "checkpoint.execute",
+    "workflow.execute",
+    "connector.fire_map",
+}
 
 
 class DispatchError(Exception):
@@ -60,10 +96,27 @@ class Dispatcher:
         self.iface = iface
         self.log = EventLog()
         self.handles = HandleStore()
+        self.artifacts = ArtifactStore()
+        self.mutations = MutationGuard()
         self.state = StateTracker(iface, self.log)
+        self.data = DataAcquisitionManager(self.state, self.log)
+        self.layer_manager = ProjectLayerManager(iface, self.state)
+        self.cartography = CartographyManager(self.state)
+        self.layouts = LayoutManager(self.state, iface=iface)
+        self.checkpoints = CheckpointManager(self.state)
+        self.verifier = ProjectVerifier()
+        self.fire_maps = FireMapManager(
+            iface,
+            self.data,
+            self.layer_manager,
+            self.cartography,
+            self.layouts,
+            self.verifier,
+            self.state,
+        )
         self.objects = ObjectRegistry(iface)
         self.capabilities = CapabilityIndex(iface, self.objects)
-        self.operations = OperationManager(self.log, self.state)
+        self.operations = OperationManager(self.log, self.state, self.artifacts)
         self.python_enabled = _truthy(os.environ.get("QGIS_MCP_ENABLE_PYTHON"))
         self._python_globals = {
             "__builtins__": __builtins__,
@@ -89,13 +142,34 @@ class Dispatcher:
             "ui.screenshot": self.ui_screenshot,
             "logs.read": self.logs_read,
             "handle.read": self.handle_read,
+            "artifact.read": self.artifact_read,
+            "artifact.list": self.artifact_list,
+            "artifact.release": self.artifact_release,
+            "data.fetch": self.data_fetch,
+            "data.service": self.data_service,
+            "data.refresh": self.data_refresh,
+            "data.catalog": self.data_catalog,
+            "data.provenance": self.data_provenance,
+            "layer.manage": self.layer_manage,
+            "cartography.style": self.cartography_style,
+            "cartography.labels": self.cartography_labels,
+            "layout.execute": self.layout_execute,
+            "checkpoint.execute": self.checkpoint_execute,
+            "project.verify": self.project_verify,
+            "workflow.execute": self.workflow_execute,
+            "connector.fire_map": self.fire_map,
+            "connector.catalog": self.connector_catalog,
             "batch.execute": self.batch_execute,
             "resources.list": self.resources_list,
             "resources.read": self.resources_read,
         }
+        self.workflows = WorkflowManager(
+            self.dispatch, self.checkpoints, self.state, self.log
+        )
         QgsApplicationMessageLog.connect(self.log)
 
     def close(self):
+        self.workflows.close()
         self.state.close()
         QgsApplicationMessageLog.disconnect(self.log)
 
@@ -105,6 +179,31 @@ class Dispatcher:
             raise DispatchError(-32601, "Unknown QGIS bridge method: {}".format(method))
         if not isinstance(params, dict):
             raise DispatchError(-32602, "Parameters must be an object")
+        params = dict(params)
+        idempotency_key = params.pop("idempotency_key", None)
+        if_revision = params.pop("if_revision", None)
+        resource_preconditions = params.pop("if_resource_revisions", None)
+        dry_run = bool(params.pop("dry_run", False))
+        if method in MUTATION_METHODS:
+            if dry_run:
+                self._check_preconditions(if_revision, resource_preconditions)
+                return {
+                    "dry_run": True,
+                    "method": method,
+                    "parameter_names": sorted(params),
+                    "preconditions_valid": True,
+                    "current_revision": self.state.revision,
+                }
+            if idempotency_key:
+                try:
+                    found, cached = self.mutations.lookup(
+                        str(idempotency_key), method, params
+                    )
+                except IdempotencyConflict as exc:
+                    raise DispatchError(-32041, str(exc)) from exc
+                if found:
+                    return cached
+            self._check_preconditions(if_revision, resource_preconditions)
         try:
             result = handler(**params)
             if method not in {"handle.read", "ui.screenshot"}:
@@ -117,7 +216,7 @@ class Dispatcher:
                         kind="large_result",
                         metadata={"method": method, "estimated_bytes": encoded_size},
                     )
-                    return {
+                    result = {
                         **descriptor,
                         "truncated": True,
                         "message": (
@@ -125,6 +224,8 @@ class Dispatcher:
                             "payload limit; page it with qgis_handle_read."
                         ),
                     }
+            if method in MUTATION_METHODS and idempotency_key:
+                self.mutations.remember(str(idempotency_key), method, params, result)
             return result
         except DispatchError:
             raise
@@ -142,6 +243,27 @@ class Dispatcher:
                 "QGIS operation failed: {}".format(exc),
                 {"method": method, "exception": type(exc).__name__, "traceback": stack},
             ) from exc
+
+    def _check_preconditions(self, revision, resources):
+        if revision is not None and int(revision) != self.state.revision:
+            raise DispatchError(
+                -32040,
+                "Global revision precondition failed",
+                {"expected": int(revision), "current": self.state.revision},
+            )
+        if resources is None:
+            return
+        if not isinstance(resources, dict):
+            raise DispatchError(-32602, "if_resource_revisions must be an object")
+        conflicts = {
+            uri: {"expected": int(expected), "current": self.state.resource_revision(uri)}
+            for uri, expected in resources.items()
+            if int(expected) != self.state.resource_revision(uri)
+        }
+        if conflicts:
+            raise DispatchError(
+                -32040, "Resource revision precondition failed", {"conflicts": conflicts}
+            )
 
     def session_snapshot(self, detail="standard", since_revision=None):
         if detail not in {"summary", "standard", "full"}:
@@ -491,8 +613,12 @@ class Dispatcher:
         )
         return {"result": json_safe(result)}
 
-    def processing_start(self, algorithm, parameters):
-        return self.operations.start_processing(algorithm, parameters)
+    def processing_start(
+        self, algorithm, parameters, retain_outputs=True, add_to_project=False
+    ):
+        return self.operations.start_processing(
+            algorithm, parameters, retain_outputs, add_to_project
+        )
 
     def operation_control(self, operation_id, action="status"):
         return self.operations.control(operation_id, action)
@@ -587,7 +713,7 @@ class Dispatcher:
         self.state.touch("ui.invoked", {"target": target, "action": action})
         return self.objects.summarize(target, obj)
 
-    def ui_screenshot(self, target="canvas", max_width=1600):
+    def ui_screenshot(self, target="canvas", max_width=1600, as_artifact=False):
         if target == "canvas":
             widget = self.iface.mapCanvas()
         elif target in {"main", "window"}:
@@ -605,14 +731,24 @@ class Dispatcher:
             raise RuntimeError("Could not encode screenshot")
         import base64
 
-        return {
-            "data": base64.b64encode(bytes(buffer.data())).decode("ascii"),
+        raw = bytes(buffer.data())
+        result = {
             "mime_type": "image/png",
             "width": pixmap.width(),
             "height": pixmap.height(),
             "target": target,
             "revision": self.state.revision,
         }
+        if as_artifact:
+            result["artifact"] = self.artifacts.put_bytes(
+                raw,
+                "image/png",
+                "qgis-{}.png".format(target),
+                {"target": target, "revision": self.state.revision},
+            )
+        else:
+            result["data"] = base64.b64encode(raw).decode("ascii")
+        return result
 
     def logs_read(self, after=0, level=None, limit=100):
         return self.log.read(int(after), level, int(limit))
@@ -620,58 +756,216 @@ class Dispatcher:
     def handle_read(self, handle, offset=0, limit=100):
         return self.handles.read(handle, int(offset), int(limit))
 
-    def batch_execute(self, calls, continue_on_error=False):
+    def artifact_read(self, artifact_id, offset=0, length=None):
+        return self.artifacts.read(artifact_id, int(offset), length)
+
+    def artifact_list(self):
+        return {"artifacts": self.artifacts.list()}
+
+    def artifact_release(self, artifact_id):
+        return {"artifact_id": artifact_id, "released": self.artifacts.release(artifact_id)}
+
+    def data_fetch(
+        self,
+        url,
+        name=None,
+        authcfg=None,
+        cache_mode="reuse",
+        max_age_seconds=3600,
+        max_bytes=64 * 1024 * 1024,
+        expected_sha256=None,
+        add_to_project=True,
+        provider=None,
+        x_field=None,
+        y_field=None,
+        delimiter=",",
+        crs="EPSG:4326",
+    ):
+        return self.data.fetch(
+            url=url,
+            name=name,
+            authcfg=authcfg,
+            cache_mode=cache_mode,
+            max_age_seconds=max_age_seconds,
+            max_bytes=max_bytes,
+            expected_sha256=expected_sha256,
+            add_to_project=add_to_project,
+            provider=provider,
+            x_field=x_field,
+            y_field=y_field,
+            delimiter=delimiter,
+            crs=crs,
+        )
+
+    def data_service(
+        self,
+        kind,
+        url,
+        name,
+        authcfg=None,
+        layer=None,
+        crs=None,
+        format="image/png",
+        zmin=0,
+        zmax=20,
+    ):
+        return self.data.add_service(
+            kind=kind,
+            url=url,
+            name=name,
+            authcfg=authcfg,
+            layer=layer,
+            crs=crs,
+            format=format,
+            zmin=zmin,
+            zmax=zmax,
+        )
+
+    def data_refresh(self, layer):
+        return self.data.refresh(self._layer(layer))
+
+    def data_catalog(self):
+        return self.data.catalog()
+
+    def data_provenance(self, layer):
+        target = self._layer(layer)
+        return {"layer_id": target.id(), "provenance": self.data.provenance(target)}
+
+    def layer_manage(self, **params):
+        return self.layer_manager.execute(**params)
+
+    def cartography_style(self, layer, **params):
+        return self.cartography.style(self._layer(layer), **params)
+
+    def cartography_labels(self, layer, **params):
+        return self.cartography.labels(self._layer(layer), **params)
+
+    def layout_execute(self, **params):
+        return self.layouts.execute(**params)
+
+    def checkpoint_execute(self, **params):
+        return self.checkpoints.execute(**params)
+
+    def project_verify(self, **params):
+        return self.verifier.verify(**params)
+
+    def workflow_execute(self, **params):
+        return self.workflows.execute(**params)
+
+    def fire_map(self, **params):
+        return self.fire_maps.build(**params)
+
+    def connector_catalog(self):
+        return {"connectors": [self.fire_maps.catalog()]}
+
+    def batch_execute(self, calls, continue_on_error=False, atomic=False):
+        if not isinstance(calls, list) or not 1 <= len(calls) <= 100:
+            raise ValueError("calls must contain between 1 and 100 items")
+        if any(not isinstance(call, dict) for call in calls):
+            raise ValueError("Every batch call must be an object")
+        checkpoint = None
+        if atomic:
+            checkpoint = self.checkpoints.create("Atomic batch", internal=True)
         results = []
-        for index, call in enumerate(calls[:100]):
-            method = call.get("method")
-            if method == "batch.execute":
-                raise ValueError("Nested batches are not supported")
-            try:
-                results.append(
-                    {
-                        "index": index,
-                        "result": self.dispatch(method, call.get("params") or {}),
-                    }
-                )
-            except DispatchError as exc:
-                results.append(
-                    {
-                        "index": index,
-                        "error": {
-                            "code": exc.code,
-                            "message": exc.message,
-                            "data": exc.data,
-                        },
-                    }
-                )
-                if not continue_on_error:
-                    break
-        return {"results": results, "completed": len(results), "requested": len(calls)}
+        rolled_back = False
+        try:
+            for index, call in enumerate(calls[:100]):
+                method = call.get("method")
+                if method == "batch.execute":
+                    raise ValueError("Nested batches are not supported")
+                try:
+                    results.append(
+                        {
+                            "index": index,
+                            "result": self.dispatch(method, call.get("params") or {}),
+                        }
+                    )
+                except DispatchError as exc:
+                    results.append(
+                        {
+                            "index": index,
+                            "error": {
+                                "code": exc.code,
+                                "message": exc.message,
+                                "data": exc.data,
+                            },
+                        }
+                    )
+                    if atomic:
+                        self.checkpoints.restore(checkpoint["checkpoint_id"])
+                        rolled_back = True
+                    if atomic or not continue_on_error:
+                        break
+        finally:
+            if checkpoint:
+                self.checkpoints.delete(checkpoint["checkpoint_id"])
+        return {
+            "results": results,
+            "completed": len(results),
+            "requested": len(calls),
+            "atomic": bool(atomic),
+            "rolled_back": rolled_back,
+        }
 
     def resources_list(self):
-        resources = []
+        resources = [
+            _resource(SESSION_URI, "Current QGIS session", self.state),
+            _resource(PROJECT_URI, "Current QGIS project", self.state),
+            _resource(LAYER_TREE_URI, "Current project layer tree", self.state),
+            _resource(CAPABILITIES_URI, "QGIS capability index", self.state),
+            _resource(LOGS_URI, "Recent QGIS MCP events", self.state),
+        ]
         for layer in QgsProject.instance().mapLayers().values():
             resources.extend(
                 [
                     {
-                        "uri": "qgis://layers/{}".format(quote(layer.id(), safe="")),
+                        "uri": layer_uri(layer.id()),
                         "name": "Layer: {}".format(layer.name()),
                         "mimeType": "application/json",
+                        "revision": self.state.resource_revision(layer_uri(layer.id())),
                     },
                     {
-                        "uri": "qgis://layers/{}/schema".format(quote(layer.id(), safe="")),
+                        "uri": layer_uri(layer.id(), "schema"),
                         "name": "Layer schema: {}".format(layer.name()),
                         "mimeType": "application/json",
+                        "revision": self.state.resource_revision(layer_uri(layer.id(), "schema")),
+                    },
+                    {
+                        "uri": layer_uri(layer.id(), "selection"),
+                        "name": "Layer selection: {}".format(layer.name()),
+                        "mimeType": "application/json",
+                        "revision": self.state.resource_revision(layer_uri(layer.id(), "selection")),
                     },
                 ]
             )
         for operation in self.operations.list_public():
             resources.append(
                 {
-                    "uri": "qgis://operations/{}".format(operation["id"]),
+                    "uri": operation_uri(operation["id"]),
                     "name": "Operation: {}".format(operation["id"]),
                     "mimeType": "application/json",
+                    "revision": self.state.resource_revision(operation_uri(operation["id"])),
                 }
+            )
+        known_layer_ids = set(QgsProject.instance().mapLayers())
+        for layer in self.operations.retained_layers():
+            if layer.id() in known_layer_ids:
+                continue
+            resources.extend(
+                [
+                    {
+                        "uri": layer_uri(layer.id()),
+                        "name": "Retained output layer: {}".format(layer.name()),
+                        "mimeType": "application/json",
+                        "revision": self.state.resource_revision(layer_uri(layer.id())),
+                    },
+                    {
+                        "uri": layer_uri(layer.id(), "schema"),
+                        "name": "Retained output schema: {}".format(layer.name()),
+                        "mimeType": "application/json",
+                        "revision": self.state.resource_revision(layer_uri(layer.id(), "schema")),
+                    },
+                ]
             )
         return resources
 
@@ -681,24 +975,29 @@ class Dispatcher:
             raise ValueError("Unsupported resource URI")
         path = [unquote(item) for item in parsed.path.strip("/").split("/") if item]
         root = parsed.netloc
+        value = None
         if root == "session":
-            return self.session_snapshot()
+            value = self.session_snapshot()
         if root == "project":
-            return self.project_inspect("project")
+            value = self.project_inspect("layer_tree" if path == ["layer-tree"] else "project")
         if root == "capabilities":
-            return self.capabilities.summary()
+            value = self.capabilities.summary()
         if root == "logs":
-            return self.logs_read()
+            value = self.logs_read()
         if root == "layers" and path:
-            include = ["schema"] if len(path) > 1 and path[1] == "schema" else None
-            return self.layer_inspect(path[0], include=include)
+            include = [path[1]] if len(path) > 1 and path[1] in {"schema", "selection"} else None
+            value = self.layer_inspect(path[0], include=include)
         if root == "operations" and path:
-            return self.operation_control(path[0])
-        raise ValueError("Unknown QGIS resource URI")
+            value = self.operation_control(path[0])
+        if value is None:
+            raise ValueError("Unknown QGIS resource URI")
+        return {"uri": uri, "revision": self.state.resource_revision(uri), "value": value}
 
     def _layer(self, identifier):
         project = QgsProject.instance()
         layer = project.mapLayer(str(identifier))
+        if layer is None:
+            layer = self.operations.map_layer(str(identifier))
         if layer is not None:
             return layer
         matches = project.mapLayersByName(str(identifier))
@@ -728,6 +1027,15 @@ def _tree_node(node):
         value["kind"] = "group"
         value["children"] = [_tree_node(child) for child in node.children()]
     return value
+
+
+def _resource(uri, name, state):
+    return {
+        "uri": uri,
+        "name": name,
+        "mimeType": "application/json",
+        "revision": state.resource_revision(uri),
+    }
 
 
 def _truthy(value):

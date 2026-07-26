@@ -1,0 +1,71 @@
+name: Python and QGIS LTR
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -e ".[dev]"
+      - run: ruff check src plugin scripts tests benchmarks
+      - run: python -m compileall -q src plugin scripts tests benchmarks
+      - run: pytest
+      - run: python scripts/build_plugin.py
+
+  qgis-ltr:
+    name: Boot plugin and MCP smoke test on QGIS LTR 3.44.12
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start official QGIS LTR desktop test image
+        run: |
+          mkdir -p benchmark-results
+          docker run -dt --name qgis-ltr \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            -v "$GITHUB_WORKSPACE/plugin/qgis_agent_mcp:/tests_directory/qgis_agent_mcp" \
+            -e QT_QPA_PLATFORM=offscreen \
+            qgis/qgis:3.44.12
+      - name: Enable plugin in isolated QGIS profile
+        run: docker exec qgis-ltr bash -lc "qgis_setup.sh qgis_agent_mcp"
+      - name: Run plugin boot, MCP-to-PyQGIS smoke, and latency baseline
+        run: |
+          docker exec \
+            -e PYTHONPATH=/workspace/src:/workspace/plugin:/workspace \
+            -e QGIS_MCP_CONNECTION_FILE=/tmp/qgis-mcp-connection.json \
+            -e QGIS_MCP_BENCHMARK_OUTPUT=/workspace/benchmark-results/qgis-ltr.json \
+            -e QT_QPA_PLATFORM=xcb \
+            qgis-ltr bash -lc "cd /workspace && bash scripts/run_qgis_ltr_tests.sh"
+      - name: Upload latency baseline
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qgis-ltr-latency
+          path: benchmark-results/*.json
+          if-no-files-found: warn
+      - name: Stop QGIS container
+        if: always()
+        run: docker rm -f qgis-ltr

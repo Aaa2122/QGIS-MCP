@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-
 from qgis_agent_mcp.store import EventLog, HandleStore
 
 

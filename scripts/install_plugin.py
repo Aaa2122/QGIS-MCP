@@ -5,6 +5,8 @@ import os
 import shutil
 from pathlib import Path
 
+from package_support import copy_packaged_plugin
+
 
 def default_plugins_directory(profile: str) -> Path:
     appdata = os.environ.get("APPDATA")
@@ -27,7 +29,6 @@ def main() -> None:
     parser.add_argument("--plugins-dir", type=Path, help="Override QGIS plugins directory")
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
-    source = root / "plugin" / "qgis_agent_mcp"
     plugins_dir = args.plugins_dir or default_plugins_directory(args.profile)
     target = plugins_dir.expanduser().resolve() / "qgis_agent_mcp"
     plugins_dir.mkdir(parents=True, exist_ok=True)
@@ -37,11 +38,10 @@ def main() -> None:
         if resolved_target.parent != resolved_plugins:
             raise RuntimeError("Refusing to replace a plugin outside the selected directory")
         shutil.rmtree(resolved_target)
-    shutil.copytree(source, target)
+    copy_packaged_plugin(root, target)
     print("Installed QGIS Agent MCP plugin at {}".format(target))
     print("Enable it in QGIS under Plugins > Manage and Install Plugins.")
 
 
 if __name__ == "__main__":
     main()
-
