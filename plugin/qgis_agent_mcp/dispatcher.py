@@ -41,6 +41,7 @@ from .ecosystem_tools import EcosystemTools
 from .operations import OperationManager
 from .processing_database_tools import ProcessingDatabaseTools
 from .project_tools import ProjectTools
+from .qa_tools import QaTools
 from .reliability import IdempotencyConflict, MutationGuard
 from .revisions import (
     CAPABILITIES_URI,
@@ -287,6 +288,10 @@ class Dispatcher:
             "authoring.annotations": self.authoring_annotations,
             "authoring.geometry_quality": self.authoring_geometry_quality,
             "authoring.vector_export": self.authoring_vector_export,
+            "qa.compatibility": self.qa_compatibility,
+            "qa.project_audit": self.qa_project_audit,
+            "qa.benchmark": self.qa_benchmark,
+            "qa.self_test": self.qa_self_test,
             "resources.list": self.resources_list,
             "resources.read": self.resources_read,
         }
@@ -312,6 +317,7 @@ class Dispatcher:
         self.specialized_data_tools = SpecializedDataTools(self.state, self._layer)
         self.ecosystem_tools = EcosystemTools(iface, self.state)
         self.authoring_tools = AuthoringTools(self.state, self._layer)
+        self.qa_tools = QaTools(iface, self.state, self.verifier, lambda: self._methods)
         self.workflows = WorkflowManager(
             self.dispatch, self.checkpoints, self.state, self.log
         )
@@ -1259,6 +1265,18 @@ class Dispatcher:
 
     def authoring_vector_export(self, **params):
         return self.authoring_tools.vector_export(**params)
+
+    def qa_compatibility(self, **params):
+        return self.qa_tools.compatibility(**params)
+
+    def qa_project_audit(self, **params):
+        return self.qa_tools.project_audit(**params)
+
+    def qa_benchmark(self, **params):
+        return self.qa_tools.benchmark(**params)
+
+    def qa_self_test(self):
+        return self.qa_tools.self_test()
 
     def resources_list(self):
         resources = [

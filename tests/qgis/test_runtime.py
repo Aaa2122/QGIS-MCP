@@ -922,6 +922,31 @@ class QgisRuntimeTest(unittest.TestCase):
                 identifiers.append(annotation_layer_id)
             QgsProject.instance().removeMapLayers(identifiers)
 
+    def test_18_compatibility_audit_benchmark_and_self_test(self):
+        dispatcher = qgis.utils.plugins["qgis_agent_mcp"].dispatcher
+        compatibility = dispatcher.dispatch(
+            "qa.compatibility", {"detail": "summary"}
+        )
+        self.assertTrue(compatibility["qgis"]["version"])
+        self.assertGreater(compatibility["bridge"]["method_count"], 100)
+        self.assertGreater(compatibility["processing"]["algorithm_count"], 0)
+        audit = dispatcher.dispatch(
+            "qa.project_audit",
+            {
+                "geometry_sample": 10,
+                "include_server": True,
+                "include_metadata": False,
+            },
+        )
+        self.assertIn(audit["status"], {"passed", "passed_with_warnings", "failed"})
+        benchmark = dispatcher.dispatch(
+            "qa.benchmark", {"action": "run", "iterations": 3}
+        )
+        self.assertEqual(benchmark["iterations"], 3)
+        self.assertGreaterEqual(benchmark["project_snapshot_ms"]["maximum"], 0)
+        health = dispatcher.dispatch("qa.self_test", {})
+        self.assertTrue(health["ok"], health)
+
 
 def _rpc(process, request, timeout_ms=15000):
     process.write((json.dumps(request, separators=(",", ":")) + "\n").encode("utf-8"))
