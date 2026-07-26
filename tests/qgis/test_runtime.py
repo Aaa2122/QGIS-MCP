@@ -842,6 +842,86 @@ class QgisRuntimeTest(unittest.TestCase):
                 "ecosystem.settings", {"action": "remove", "key": settings_key}
             )
 
+    def test_17_forms_diagrams_annotations_geometry_quality_and_export(self):
+        dispatcher = qgis.utils.plugins["qgis_agent_mcp"].dispatcher
+        layer = QgsVectorLayer(
+            "Point?crs=EPSG:4326&field=label:string&field=a:double&field=b:double",
+            "authoring-tools",
+            "memory",
+        )
+        QgsProject.instance().addMapLayer(layer)
+        annotation_layer_id = None
+        try:
+            dispatcher.vector_edit(
+                layer.id(),
+                "add",
+                features=[
+                    {
+                        "attributes": {"label": "one", "a": 3, "b": 7},
+                        "geometry_wkt": "POINT(2.35 48.86)",
+                    }
+                ],
+            )
+            dispatcher.vector_edit(layer.id(), "commit")
+            form = dispatcher.dispatch(
+                "authoring.forms",
+                {
+                    "layer": layer.id(),
+                    "action": "configure_field",
+                    "field": "label",
+                    "label_on_top": True,
+                    "reuse_last_value": True,
+                },
+            )
+            label_form = next(item for item in form["fields"] if item["name"] == "label")
+            self.assertTrue(label_form["label_on_top"])
+            diagram = dispatcher.dispatch(
+                "authoring.diagrams",
+                {
+                    "layer": layer.id(),
+                    "action": "set",
+                    "diagram_type": "pie",
+                    "fields": ["a", "b"],
+                    "colors": ["#ef5350", "#42a5f5"],
+                },
+            )
+            self.assertTrue(diagram["enabled"])
+            quality = dispatcher.dispatch(
+                "authoring.geometry_quality", {"layer": layer.id(), "action": "validate"}
+            )
+            self.assertEqual(quality["issue_count"], 0)
+            annotation_layer = dispatcher.dispatch(
+                "authoring.annotations",
+                {"action": "create_layer", "name": "MCP annotations"},
+            )
+            annotation_layer_id = annotation_layer["layer"]["id"]
+            annotations = dispatcher.dispatch(
+                "authoring.annotations",
+                {
+                    "action": "add_text",
+                    "layer": annotation_layer_id,
+                    "point": [2.35, 48.86],
+                    "text": "Paris",
+                },
+            )
+            self.assertEqual(len(annotations["items"]), 1)
+            with tempfile.TemporaryDirectory(prefix="qgis-mcp-export-") as directory:
+                output = Path(directory) / "authoring.geojson"
+                exported = dispatcher.dispatch(
+                    "authoring.vector_export",
+                    {
+                        "layer": layer.id(),
+                        "path": str(output),
+                        "format": "geojson",
+                    },
+                )
+                self.assertTrue(Path(exported["path"]).is_file())
+        finally:
+            identifiers = [layer.id()]
+            if annotation_layer_id:
+                identifiers.append(annotation_layer_id)
+            QgsProject.instance().removeMapLayers(identifiers)
+
 
 def _rpc(process, request, timeout_ms=15000):
     process.write((json.dumps(request, separators=(",", ":")) + "\n").encode("utf-8"))
