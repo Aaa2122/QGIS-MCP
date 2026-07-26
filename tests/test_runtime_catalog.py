@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from qgis_mcp.tool_catalog import TOOL_METHODS, TOOLS
+from qgis_mcp.tool_catalog import _MUTATION_TOOLS, TOOL_METHODS, TOOLS
 
 RUNTIME_TOOLS = {
     "qgis_runtime": "runtime.control",
@@ -94,6 +94,31 @@ AUTHORING_TOOLS = {
     "qgis_vector_export": "authoring.vector_export",
 }
 
+QA_TOOLS = {
+    "qgis_compatibility": "qa.compatibility",
+    "qgis_project_audit": "qa.project_audit",
+    "qgis_benchmark": "qa.benchmark",
+    "qgis_self_test": "qa.self_test",
+}
+
+
+def test_entire_catalog_has_unique_complete_routes_and_reliability_controls():
+    names = [tool["name"] for tool in TOOLS]
+    assert len(names) == len(set(names))
+    assert set(names) == set(TOOL_METHODS)
+    for tool in TOOLS:
+        assert tool["description"].strip()
+        schema = tool["inputSchema"]
+        assert schema["type"] == "object"
+        assert schema["additionalProperties"] is False
+        if tool["name"] in _MUTATION_TOOLS:
+            assert {
+                "idempotency_key",
+                "if_revision",
+                "if_resource_revisions",
+                "dry_run",
+            } <= set(schema["properties"])
+
 
 def test_runtime_tool_families_are_public_and_routed():
     by_name = {tool["name"]: tool for tool in TOOLS}
@@ -162,4 +187,11 @@ def test_authoring_tool_families_are_public_and_routed():
     by_name = {tool["name"]: tool for tool in TOOLS}
     assert {name: TOOL_METHODS[name] for name in AUTHORING_TOOLS} == AUTHORING_TOOLS
     for name in AUTHORING_TOOLS:
+        assert by_name[name]["inputSchema"]["additionalProperties"] is False
+
+
+def test_qa_tool_families_are_public_and_routed():
+    by_name = {tool["name"]: tool for tool in TOOLS}
+    assert {name: TOOL_METHODS[name] for name in QA_TOOLS} == QA_TOOLS
+    for name in QA_TOOLS:
         assert by_name[name]["inputSchema"]["additionalProperties"] is False

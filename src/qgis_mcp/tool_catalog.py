@@ -1722,6 +1722,49 @@ TOOLS.extend(
     ]
 )
 
+TOOLS.extend(
+    [
+        {
+            "name": "qgis_compatibility",
+            "description": "Report QGIS, Qt, provider, Processing, layer-class, and bridge-method compatibility for the running installation.",
+            "inputSchema": _object(
+                {
+                    "detail": {"type": "string", "enum": ["summary", "standard", "full"], "default": "standard"},
+                }
+            ),
+        },
+        {
+            "name": "qgis_project_audit",
+            "description": "Run a consolidated delivery audit over project, layers, sampled geometries, schemas, metadata, layouts, edits, provenance, and QGIS Server validation.",
+            "inputSchema": _object(
+                {
+                    "geometry_sample": {"type": "integer", "minimum": 0, "maximum": 1000, "default": 100},
+                    "require_layout": {"type": "boolean", "default": False},
+                    "require_saved": {"type": "boolean", "default": False},
+                    "include_server": {"type": "boolean", "default": True},
+                    "include_metadata": {"type": "boolean", "default": True},
+                }
+            ),
+        },
+        {
+            "name": "qgis_benchmark",
+            "description": "Measure bounded active-project tree and layer-summary latency or produce a versioned local baseline result.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["run", "baseline"], "default": "run"},
+                    "iterations": {"type": "integer", "minimum": 1, "maximum": 200, "default": 20},
+                    "include_layers": {"type": "boolean", "default": True},
+                }
+            ),
+        },
+        {
+            "name": "qgis_self_test",
+            "description": "Run fast, non-mutating health probes for the QGIS interface, project, canvas, providers, Processing registry, and bridge routing.",
+            "inputSchema": _object({}),
+        },
+    ]
+)
+
 _MUTATION_TOOLS = {
     "qgis_project_action",
     "qgis_selection_set",
@@ -1928,4 +1971,8 @@ TOOL_METHODS = {
     "qgis_annotations": "authoring.annotations",
     "qgis_geometry_quality": "authoring.geometry_quality",
     "qgis_vector_export": "authoring.vector_export",
+    "qgis_compatibility": "qa.compatibility",
+    "qgis_project_audit": "qa.project_audit",
+    "qgis_benchmark": "qa.benchmark",
+    "qgis_self_test": "qa.self_test",
 }
