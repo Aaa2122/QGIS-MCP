@@ -31,6 +31,7 @@ from qgis.PyQt.QtWidgets import (
     QWidget,
 )
 
+from .advanced_cartography import AdvancedCartographyTools
 from .capabilities import CapabilityIndex, ObjectRegistry
 from .cartography import CartographyManager, LayoutManager, ProjectLayerManager
 from .connectors import FireMapManager
@@ -109,6 +110,12 @@ MUTATION_METHODS = {
     "processing.history",
     "database.control",
     "connection.manage",
+    "cartography.renderer",
+    "cartography.symbol",
+    "style.library",
+    "cartography.labeling",
+    "layout.item",
+    "layout.atlas",
 }
 
 
@@ -229,6 +236,13 @@ class Dispatcher:
             "processing.context": self.processing_context,
             "database.control": self.database_control,
             "connection.manage": self.connection_manage,
+            "cartography.renderer": self.advanced_renderer,
+            "cartography.symbol": self.advanced_symbol,
+            "style.library": self.style_library,
+            "cartography.labeling": self.advanced_labeling,
+            "layout.item": self.layout_item,
+            "layout.atlas": self.layout_atlas,
+            "layout.validate": self.layout_validate,
             "resources.list": self.resources_list,
             "resources.read": self.resources_read,
         }
@@ -247,6 +261,9 @@ class Dispatcher:
         self.vector_raster_tools = VectorRasterTools(self.state, self._layer)
         self.processing_database_tools = ProcessingDatabaseTools(
             self.state, self.operations
+        )
+        self.advanced_cartography = AdvancedCartographyTools(
+            self.state, self._layer
         )
         self.workflows = WorkflowManager(
             self.dispatch, self.checkpoints, self.state, self.log
@@ -1111,6 +1128,27 @@ class Dispatcher:
 
     def connection_manage(self, **params):
         return self.processing_database_tools.connection_manage(**params)
+
+    def advanced_renderer(self, **params):
+        return self.advanced_cartography.renderer(**params)
+
+    def advanced_symbol(self, **params):
+        return self.advanced_cartography.symbol(**params)
+
+    def style_library(self, **params):
+        return self.advanced_cartography.style_library(**params)
+
+    def advanced_labeling(self, **params):
+        return self.advanced_cartography.labeling(**params)
+
+    def layout_item(self, **params):
+        return self.advanced_cartography.layout_items(**params)
+
+    def layout_atlas(self, **params):
+        return self.advanced_cartography.atlas(**params)
+
+    def layout_validate(self, **params):
+        return self.advanced_cartography.layout_validate(**params)
 
     def resources_list(self):
         resources = [

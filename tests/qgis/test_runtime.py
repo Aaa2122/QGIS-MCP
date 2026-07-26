@@ -660,6 +660,117 @@ class QgisRuntimeTest(unittest.TestCase):
         finally:
             QgsProject.instance().removeMapLayer(source.id())
 
+    def test_14_advanced_cartography_layout_items_and_atlas(self):
+        dispatcher = qgis.utils.plugins["qgis_agent_mcp"].dispatcher
+        layer = QgsVectorLayer(
+            "Point?crs=EPSG:4326&field=kind:string", "cartography-tools", "memory"
+        )
+        QgsProject.instance().addMapLayer(layer)
+        dispatcher.vector_edit(
+            layer.id(),
+            "add",
+            features=[
+                {
+                    "attributes": {"kind": "city"},
+                    "geometry_wkt": "POINT(2.35 48.86)",
+                }
+            ],
+        )
+        dispatcher.vector_edit(layer.id(), "commit")
+        layout_name = "QGIS MCP advanced cartography"
+        try:
+            renderer = dispatcher.dispatch(
+                "cartography.renderer",
+                {
+                    "layer": layer.id(),
+                    "action": "rule_based",
+                    "rules": [
+                        {
+                            "expression": "kind = 'city'",
+                            "label": "Cities",
+                            "color": "#e53935",
+                            "size": 4,
+                        },
+                        {"else": True, "label": "Other", "color": "#607d8b"},
+                    ],
+                },
+            )
+            self.assertIn("rule", renderer["renderer"]["type"].casefold())
+            symbols = dispatcher.dispatch(
+                "cartography.symbol",
+                {"layer": layer.id(), "action": "set", "opacity": 0.8},
+            )
+            self.assertTrue(symbols["symbols"])
+            labels = dispatcher.dispatch(
+                "cartography.labeling",
+                {
+                    "layer": layer.id(),
+                    "action": "set",
+                    "field": "kind",
+                    "font_size": 11,
+                    "buffer_size": 1,
+                    "placement": "around_point",
+                },
+            )
+            self.assertTrue(labels["enabled"])
+            library = dispatcher.dispatch(
+                "style.library", {"action": "list", "kind": "symbols", "limit": 10}
+            )
+            self.assertIn("names", library)
+
+            dispatcher.dispatch(
+                "layout.execute", {"action": "create", "name": layout_name}
+            )
+            map_item = dispatcher.dispatch(
+                "layout.item",
+                {
+                    "layout": layout_name,
+                    "action": "add",
+                    "item_type": "map",
+                    "item_id": "mcp-map",
+                    "x": 10,
+                    "y": 30,
+                    "width": 160,
+                    "height": 120,
+                    "extent": [1.5, 48.4, 3.2, 49.3],
+                    "layers": [layer.id()],
+                },
+            )
+            self.assertEqual(map_item["id"], "mcp-map")
+            label_item = dispatcher.dispatch(
+                "layout.item",
+                {
+                    "layout": layout_name,
+                    "action": "add",
+                    "item_type": "label",
+                    "item_id": "mcp-title",
+                    "text": "Autonomous map",
+                    "x": 10,
+                    "y": 10,
+                },
+            )
+            self.assertEqual(label_item["text"], "Autonomous map")
+            atlas = dispatcher.dispatch(
+                "layout.atlas",
+                {
+                    "layout": layout_name,
+                    "action": "configure",
+                    "coverage_layer": layer.id(),
+                    "filename_expression": "'page_' || @atlas_featurenumber",
+                    "page_name_expression": "kind",
+                },
+            )
+            self.assertTrue(atlas["enabled"])
+            validation = dispatcher.dispatch(
+                "layout.validate", {"layout": layout_name}
+            )
+            self.assertGreater(validation["item_count"], 0)
+        finally:
+            layout = QgsProject.instance().layoutManager().layoutByName(layout_name)
+            if layout:
+                QgsProject.instance().layoutManager().removeLayout(layout)
+            QgsProject.instance().removeMapLayer(layer.id())
+
 
 def _rpc(process, request, timeout_ms=15000):
     process.write((json.dumps(request, separators=(",", ":")) + "\n").encode("utf-8"))
