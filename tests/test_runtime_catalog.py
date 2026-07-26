@@ -32,6 +32,18 @@ PROJECT_TOOLS = {
     "qgis_connections": "connection.inspect",
 }
 
+VECTOR_RASTER_TOOLS = {
+    "qgis_vector_schema": "vector.schema",
+    "qgis_vector_statistics": "vector.statistics",
+    "qgis_geometry_edit": "vector.geometry",
+    "qgis_vector_indexes": "vector.index",
+    "qgis_vector_joins": "vector.join",
+    "qgis_relations": "project.relation",
+    "qgis_snapping": "project.snapping",
+    "qgis_vector_select": "selection.advanced",
+    "qgis_raster_inspect": "raster.inspect",
+}
+
 
 def test_runtime_tool_families_are_public_and_routed():
     by_name = {tool["name"]: tool for tool in TOOLS}
@@ -52,4 +64,13 @@ def test_project_tool_families_are_public_and_routed():
     by_name = {tool["name"]: tool for tool in TOOLS}
     assert {name: TOOL_METHODS[name] for name in PROJECT_TOOLS} == PROJECT_TOOLS
     for name in PROJECT_TOOLS:
+        assert by_name[name]["inputSchema"]["additionalProperties"] is False
+
+
+def test_vector_raster_tool_families_are_public_and_routed():
+    by_name = {tool["name"]: tool for tool in TOOLS}
+    assert {
+        name: TOOL_METHODS[name] for name in VECTOR_RASTER_TOOLS
+    } == VECTOR_RASTER_TOOLS
+    for name in VECTOR_RASTER_TOOLS:
         assert by_name[name]["inputSchema"]["additionalProperties"] is False
