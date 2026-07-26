@@ -36,6 +36,7 @@ from .cartography import CartographyManager, LayoutManager, ProjectLayerManager
 from .connectors import FireMapManager
 from .data_sources import DataAcquisitionManager
 from .operations import OperationManager
+from .project_tools import ProjectTools
 from .reliability import IdempotencyConflict, MutationGuard
 from .revisions import (
     CAPABILITIES_URI,
@@ -85,6 +86,15 @@ MUTATION_METHODS = {
     "runtime.render",
     "runtime.transaction",
     "runtime.undo",
+    "project.manage",
+    "project.properties",
+    "project.repair",
+    "layer.source",
+    "canvas.control",
+    "bookmark.manage",
+    "map_theme.manage",
+    "crs.control",
+    "metadata.manage",
 }
 
 
@@ -176,6 +186,19 @@ class Dispatcher:
             "runtime.diagnostics": self.runtime_diagnostics,
             "runtime.permissions": self.runtime_permissions,
             "runtime.auth": self.runtime_auth,
+            "project.manage": self.project_manage,
+            "project.properties": self.project_properties,
+            "project.repair": self.project_repair,
+            "layer.source": self.layer_source,
+            "canvas.control": self.canvas_control,
+            "map.identify": self.map_identify,
+            "map.measure": self.map_measure,
+            "bookmark.manage": self.bookmark_manage,
+            "map_theme.manage": self.map_theme_manage,
+            "crs.control": self.crs_control,
+            "expression.control": self.expression_control,
+            "metadata.manage": self.metadata_manage,
+            "connection.inspect": self.connection_inspect,
             "resources.list": self.resources_list,
             "resources.read": self.resources_read,
         }
@@ -190,6 +213,7 @@ class Dispatcher:
             self.data,
             self.layouts,
         )
+        self.project_tools = ProjectTools(iface, self.state, self._layer)
         self.workflows = WorkflowManager(
             self.dispatch, self.checkpoints, self.state, self.log
         )
@@ -966,6 +990,45 @@ class Dispatcher:
 
     def runtime_auth(self, **params):
         return self.runtime_tools.auth(**params)
+
+    def project_manage(self, **params):
+        return self.project_tools.project(**params)
+
+    def project_properties(self, **params):
+        return self.project_tools.project_properties(**params)
+
+    def project_repair(self, **params):
+        return self.project_tools.repair(**params)
+
+    def layer_source(self, **params):
+        return self.project_tools.source(**params)
+
+    def canvas_control(self, **params):
+        return self.project_tools.canvas(**params)
+
+    def map_identify(self, **params):
+        return self.project_tools.identify(**params)
+
+    def map_measure(self, **params):
+        return self.project_tools.measure(**params)
+
+    def bookmark_manage(self, **params):
+        return self.project_tools.bookmarks(**params)
+
+    def map_theme_manage(self, **params):
+        return self.project_tools.themes(**params)
+
+    def crs_control(self, **params):
+        return self.project_tools.crs(**params)
+
+    def expression_control(self, **params):
+        return self.project_tools.expression(**params)
+
+    def metadata_manage(self, **params):
+        return self.project_tools.metadata(**params)
+
+    def connection_inspect(self, **params):
+        return self.project_tools.connections(**params)
 
     def resources_list(self):
         resources = [

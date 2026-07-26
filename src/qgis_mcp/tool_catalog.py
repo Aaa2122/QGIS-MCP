@@ -781,6 +781,213 @@ TOOLS.extend(
     ]
 )
 
+TOOLS.extend(
+    [
+        {
+            "name": "qgis_project_manage",
+            "description": "Create, open, save, save-as, close, or inspect the active QGIS project.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["status", "new", "open", "save", "save_as", "close"], "default": "status"},
+                    "path": {"type": "string"},
+                    "save_changes": {"type": "boolean", "default": False},
+                }
+            ),
+        },
+        {
+            "name": "qgis_project_properties",
+            "description": "Read or set project title, home path, CRS, ellipsoid, and custom variables.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["get", "set"], "default": "get"},
+                    "title": {"type": "string"},
+                    "home_path": {"type": "string"},
+                    "crs": {"type": ["string", "integer"]},
+                    "ellipsoid": {"type": "string"},
+                    "variables": {"type": "object"},
+                }
+            ),
+        },
+        {
+            "name": "qgis_project_repair",
+            "description": "Inspect broken project layers or rebind them to replacement data sources without replacing the layer object.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["inspect", "apply"], "default": "inspect"},
+                    "repairs": {
+                        "type": "array",
+                        "items": _object(
+                            {
+                                "layer": {"type": "string"},
+                                "source": {"type": "string"},
+                                "provider": {"type": "string"},
+                                "name": {"type": "string"},
+                            },
+                            ["layer", "source"],
+                        ),
+                    },
+                }
+            ),
+        },
+        {
+            "name": "qgis_source",
+            "description": "Inspect, rebind, reload, or filter the source of a project layer with credential redaction.",
+            "inputSchema": _object(
+                {
+                    "layer": {"type": "string"},
+                    "action": {"type": "string", "enum": ["inspect", "rebind", "reload", "set_subset"], "default": "inspect"},
+                    "source": {"type": "string"},
+                    "provider": {"type": "string"},
+                    "name": {"type": "string"},
+                    "subset": {"type": "string"},
+                },
+                ["layer"],
+            ),
+        },
+        {
+            "name": "qgis_canvas",
+            "description": "List map views or inspect and control a QGIS 2D canvas extent, center, scale, rotation, CRS, and refresh.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["status", "list_views", "set_extent", "set_center", "set_scale", "set_rotation", "set_crs", "zoom_full", "zoom_selected", "refresh"], "default": "status"},
+                    "view": {"type": "string"},
+                    "extent": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number"}},
+                    "center": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "number"}},
+                    "crs": {"type": ["string", "integer"]},
+                    "scale": {"type": "number", "exclusiveMinimum": 0},
+                    "rotation": {"type": "number"},
+                }
+            ),
+        },
+        {
+            "name": "qgis_identify",
+            "description": "Identify vector features and raster band values at a map coordinate across selected or all project layers.",
+            "inputSchema": _object(
+                {
+                    "point": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "number"}},
+                    "crs": {"type": ["string", "integer"]},
+                    "layers": {"type": "array", "items": {"type": "string"}},
+                    "tolerance": {"type": "number", "minimum": 0, "default": 0},
+                    "limit_per_layer": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20},
+                },
+                ["point"],
+            ),
+        },
+        {
+            "name": "qgis_measure",
+            "description": "Measure geodesic length, perimeter, area, or bearing using the project transform context and ellipsoid.",
+            "inputSchema": _object(
+                {
+                    "action": {
+                        "type": "string",
+                        "enum": ["length", "perimeter", "area", "bearing"],
+                    },
+                    "geometry_wkt": {"type": "string"},
+                    "points": {
+                        "type": "array",
+                        "items": {
+                            "type": "array",
+                            "minItems": 2,
+                            "maxItems": 2,
+                            "items": {"type": "number"},
+                        },
+                    },
+                    "crs": {"type": ["string", "integer"]},
+                    "ellipsoid": {"type": "string"},
+                },
+                ["action"],
+            ),
+        },
+        {
+            "name": "qgis_bookmarks",
+            "description": "List, add, remove, or zoom to spatial bookmarks stored in the active project.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["list", "add", "remove", "zoom"], "default": "list"},
+                    "bookmark_id": {"type": "string"},
+                    "name": {"type": "string"},
+                    "group": {"type": "string"},
+                    "extent": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number"}},
+                    "crs": {"type": ["string", "integer"]},
+                    "rotation": {"type": "number", "default": 0},
+                }
+            ),
+        },
+        {
+            "name": "qgis_map_themes",
+            "description": "List, capture, apply, or remove QGIS map themes for reproducible layer visibility and styles.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["list", "capture", "apply", "remove"], "default": "list"},
+                    "name": {"type": "string"},
+                }
+            ),
+        },
+        {
+            "name": "qgis_crs",
+            "description": "Search or describe CRS definitions, transform points, extents, or WKT geometry, and assign a CRS to a layer.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["describe", "search", "transform_points", "transform_extent", "transform_geometry", "assign_layer"], "default": "describe"},
+                    "value": {"type": ["string", "integer"]},
+                    "query": {"type": "string"},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20},
+                    "source": {"type": ["string", "integer"]},
+                    "target": {"type": ["string", "integer"]},
+                    "points": {
+                        "type": "array",
+                        "maxItems": 10000,
+                        "items": {
+                            "type": "array",
+                            "minItems": 2,
+                            "maxItems": 2,
+                            "items": {"type": "number"},
+                        },
+                    },
+                    "extent": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number"}},
+                    "geometry_wkt": {"type": "string"},
+                    "layer": {"type": "string"},
+                }
+            ),
+        },
+        {
+            "name": "qgis_expression",
+            "description": "List QGIS expression functions or validate and evaluate an expression in global, project, layer, and feature scopes.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["functions", "validate", "evaluate"], "default": "validate"},
+                    "expression": {"type": "string"},
+                    "layer": {"type": "string"},
+                    "feature_id": {"type": "integer"},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 100},
+                }
+            ),
+        },
+        {
+            "name": "qgis_metadata",
+            "description": "Read or update structured project or layer metadata such as title, identifier, abstract, language, categories, and history.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["get", "set"], "default": "get"},
+                    "layer": {"type": "string"},
+                    "values": {"type": "object"},
+                }
+            ),
+        },
+        {
+            "name": "qgis_connections",
+            "description": "List connection-capable QGIS providers and stored provider connections without exposing connection secrets.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["providers", "list", "describe"], "default": "list"},
+                    "provider": {"type": "string"},
+                    "name": {"type": "string"},
+                }
+            ),
+        },
+    ]
+)
+
 _MUTATION_TOOLS = {
     "qgis_project_action",
     "qgis_selection_set",
@@ -806,6 +1013,15 @@ _MUTATION_TOOLS = {
     "qgis_render",
     "qgis_transaction",
     "qgis_undo",
+    "qgis_project_manage",
+    "qgis_project_properties",
+    "qgis_project_repair",
+    "qgis_source",
+    "qgis_canvas",
+    "qgis_bookmarks",
+    "qgis_map_themes",
+    "qgis_crs",
+    "qgis_metadata",
 }
 for _tool in TOOLS:
     if _tool["name"] in _MUTATION_TOOLS:
@@ -883,4 +1099,17 @@ TOOL_METHODS = {
     "qgis_diagnostics": "runtime.diagnostics",
     "qgis_permissions": "runtime.permissions",
     "qgis_auth": "runtime.auth",
+    "qgis_project_manage": "project.manage",
+    "qgis_project_properties": "project.properties",
+    "qgis_project_repair": "project.repair",
+    "qgis_source": "layer.source",
+    "qgis_canvas": "canvas.control",
+    "qgis_identify": "map.identify",
+    "qgis_measure": "map.measure",
+    "qgis_bookmarks": "bookmark.manage",
+    "qgis_map_themes": "map_theme.manage",
+    "qgis_crs": "crs.control",
+    "qgis_expression": "expression.control",
+    "qgis_metadata": "metadata.manage",
+    "qgis_connections": "connection.inspect",
 }

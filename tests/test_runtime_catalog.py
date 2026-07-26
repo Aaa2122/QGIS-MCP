@@ -16,6 +16,22 @@ RUNTIME_TOOLS = {
     "qgis_auth": "runtime.auth",
 }
 
+PROJECT_TOOLS = {
+    "qgis_project_manage": "project.manage",
+    "qgis_project_properties": "project.properties",
+    "qgis_project_repair": "project.repair",
+    "qgis_source": "layer.source",
+    "qgis_canvas": "canvas.control",
+    "qgis_identify": "map.identify",
+    "qgis_measure": "map.measure",
+    "qgis_bookmarks": "bookmark.manage",
+    "qgis_map_themes": "map_theme.manage",
+    "qgis_crs": "crs.control",
+    "qgis_expression": "expression.control",
+    "qgis_metadata": "metadata.manage",
+    "qgis_connections": "connection.inspect",
+}
+
 
 def test_runtime_tool_families_are_public_and_routed():
     by_name = {tool["name"]: tool for tool in TOOLS}
@@ -30,3 +46,10 @@ def test_runtime_mutations_have_reliability_controls():
     for name in {"qgis_tasks", "qgis_render", "qgis_transaction", "qgis_undo"}:
         properties = by_name[name]["inputSchema"]["properties"]
         assert {"idempotency_key", "if_revision", "if_resource_revisions", "dry_run"} <= set(properties)
+
+
+def test_project_tool_families_are_public_and_routed():
+    by_name = {tool["name"]: tool for tool in TOOLS}
+    assert {name: TOOL_METHODS[name] for name in PROJECT_TOOLS} == PROJECT_TOOLS
+    for name in PROJECT_TOOLS:
+        assert by_name[name]["inputSchema"]["additionalProperties"] is False
