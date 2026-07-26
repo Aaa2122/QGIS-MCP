@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "qgis-agent-mcp"
-version = "0.3.0"
+version = "0.4.0"
 description = "A high-capability Model Context Protocol runtime for a live QGIS session"
 readme = {text = "A high-capability Model Context Protocol runtime for a live QGIS session.", content-type = "text/plain"}
 requires-python = ">=3.10"
