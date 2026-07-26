@@ -376,6 +376,137 @@ class QgisRuntimeTest(unittest.TestCase):
                 layer.rollBack()
             QgsProject.instance().removeMapLayer(layer.id())
 
+    def test_11_project_canvas_crs_expression_metadata_and_bookmarks(self):
+        dispatcher = qgis.utils.plugins["qgis_agent_mcp"].dispatcher
+        layer = QgsVectorLayer(
+            "Point?crs=EPSG:4326&field=name:string", "project-tools", "memory"
+        )
+        QgsProject.instance().addMapLayer(layer)
+        dispatcher.vector_edit(
+            layer.id(),
+            "add",
+            features=[
+                {
+                    "attributes": {"name": "Paris"},
+                    "geometry_wkt": "POINT(2.35 48.86)",
+                }
+            ],
+        )
+        dispatcher.vector_edit(layer.id(), "commit")
+        original_title = QgsProject.instance().title()
+        bookmark_id = None
+        theme_name = "mcp-project-tools-theme"
+        try:
+            properties = dispatcher.dispatch(
+                "project.properties",
+                {
+                    "action": "set",
+                    "title": "QGIS MCP project tools",
+                    "crs": "EPSG:4326",
+                    "variables": {"mcp_test": "yes"},
+                },
+            )
+            self.assertEqual(properties["title"], "QGIS MCP project tools")
+            self.assertEqual(properties["crs"]["authid"], "EPSG:4326")
+
+            canvas = dispatcher.dispatch(
+                "canvas.control",
+                {
+                    "action": "set_extent",
+                    "extent": [1.0, 47.0, 4.0, 50.0],
+                    "crs": "EPSG:4326",
+                },
+            )
+            self.assertEqual(canvas["crs"], "EPSG:4326")
+            identified = dispatcher.dispatch(
+                "map.identify",
+                {
+                    "point": [2.35, 48.86],
+                    "crs": "EPSG:4326",
+                    "layers": [layer.id()],
+                    "tolerance": 0.01,
+                },
+            )
+            self.assertEqual(
+                identified["results"][0]["features"][0]["attributes"]["name"],
+                "Paris",
+            )
+
+            measured = dispatcher.dispatch(
+                "map.measure",
+                {
+                    "action": "length",
+                    "geometry_wkt": "LINESTRING(2.35 48.86,2.36 48.87)",
+                    "crs": "EPSG:4326",
+                },
+            )
+            self.assertGreater(measured["value"], 0)
+            transformed = dispatcher.dispatch(
+                "crs.control",
+                {
+                    "action": "transform_points",
+                    "source": "EPSG:4326",
+                    "target": "EPSG:3857",
+                    "points": [[2.35, 48.86]],
+                },
+            )
+            self.assertGreater(transformed["points"][0][0], 200000)
+            expression = dispatcher.dispatch(
+                "expression.control",
+                {"action": "evaluate", "expression": "upper('qgis')"},
+            )
+            self.assertEqual(expression["value"], "QGIS")
+
+            metadata = dispatcher.dispatch(
+                "metadata.manage",
+                {
+                    "action": "set",
+                    "layer": layer.id(),
+                    "values": {
+                        "title": "Project tools layer",
+                        "abstract": "MCP integration test",
+                    },
+                },
+            )
+            self.assertEqual(metadata["title"], "Project tools layer")
+            source = dispatcher.dispatch(
+                "layer.source", {"layer": layer.id(), "action": "inspect"}
+            )
+            self.assertTrue(source["valid"])
+
+            bookmark = dispatcher.dispatch(
+                "bookmark.manage",
+                {
+                    "action": "add",
+                    "name": "Paris",
+                    "extent": [2.0, 48.5, 2.7, 49.1],
+                    "crs": "EPSG:4326",
+                },
+            )
+            bookmark_id = bookmark["id"]
+            self.assertEqual(bookmark["name"], "Paris")
+            dispatcher.dispatch(
+                "map_theme.manage", {"action": "capture", "name": theme_name}
+            )
+            themes = dispatcher.dispatch("map_theme.manage", {"action": "list"})
+            self.assertIn(theme_name, {item["name"] for item in themes["themes"]})
+            connections = dispatcher.dispatch(
+                "connection.inspect", {"action": "providers"}
+            )
+            self.assertIn("ogr", connections["providers"])
+        finally:
+            if bookmark_id:
+                dispatcher.dispatch(
+                    "bookmark.manage",
+                    {"action": "remove", "bookmark_id": bookmark_id},
+                )
+            if QgsProject.instance().mapThemeCollection().hasMapTheme(theme_name):
+                dispatcher.dispatch(
+                    "map_theme.manage", {"action": "remove", "name": theme_name}
+                )
+            QgsProject.instance().setTitle(original_title)
+            QgsProject.instance().removeMapLayer(layer.id())
+
 
 def _rpc(process, request, timeout_ms=15000):
     process.write((json.dumps(request, separators=(",", ":")) + "\n").encode("utf-8"))
