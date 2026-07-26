@@ -626,6 +626,161 @@ TOOLS: list[dict[str, Any]] = [
     },
 ]
 
+TOOLS.extend(
+    [
+        {
+            "name": "qgis_runtime",
+            "description": "Inspect the live QGIS/Qt/Python runtime, compatibility profile, and installed data or Processing providers.",
+            "inputSchema": _object(
+                {
+                    "action": {
+                        "type": "string",
+                        "enum": ["status", "compatibility", "providers"],
+                        "default": "status",
+                    }
+                }
+            ),
+        },
+        {
+            "name": "qgis_tasks",
+            "description": "List, inspect, or cancel tasks managed by the QGIS task manager.",
+            "inputSchema": _object(
+                {
+                    "action": {
+                        "type": "string",
+                        "enum": ["list", "status", "cancel"],
+                        "default": "list",
+                    },
+                    "task_id": {"type": ["string", "integer"]},
+                }
+            ),
+        },
+        {
+            "name": "qgis_events",
+            "description": "Read bounded revisioned project, layer, canvas, edit, render, and task events from the live session.",
+            "inputSchema": _object(
+                {
+                    "after_revision": {"type": "integer", "minimum": 0, "default": 0},
+                    "until_revision": {"type": "integer", "minimum": 0},
+                    "event_types": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 200},
+                }
+            ),
+        },
+        {
+            "name": "qgis_render",
+            "description": "Inspect, refresh, enable, or cancel rendering on the main QGIS map canvas.",
+            "inputSchema": _object(
+                {
+                    "action": {
+                        "type": "string",
+                        "enum": ["status", "refresh", "refresh_all", "cancel", "set_enabled"],
+                        "default": "status",
+                    },
+                    "enabled": {"type": "boolean"},
+                }
+            ),
+        },
+        {
+            "name": "qgis_transaction",
+            "description": "Coordinate edit sessions across one or more vector layers, including save, commit, and rollback.",
+            "inputSchema": _object(
+                {
+                    "action": {
+                        "type": "string",
+                        "enum": ["status", "start", "save", "commit", "rollback"],
+                        "default": "status",
+                    },
+                    "layers": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Layer IDs or exact names; defaults to all vector layers.",
+                    },
+                    "stop_editing": {"type": "boolean", "default": True},
+                }
+            ),
+        },
+        {
+            "name": "qgis_undo",
+            "description": "Inspect or control the undo stack for an editable vector layer.",
+            "inputSchema": _object(
+                {
+                    "action": {
+                        "type": "string",
+                        "enum": ["status", "undo", "redo"],
+                        "default": "status",
+                    },
+                    "layer": {"type": "string"},
+                    "steps": {"type": "integer", "minimum": 1, "maximum": 100, "default": 1},
+                }
+            ),
+        },
+        {
+            "name": "qgis_preflight",
+            "description": "Validate an autonomous bridge-call plan and report mutations or elevated-trust escape hatches before execution.",
+            "inputSchema": _object(
+                {
+                    "calls": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 100,
+                        "items": _object(
+                            {
+                                "method": {"type": "string"},
+                                "params": {"type": "object"},
+                            },
+                            ["method"],
+                        ),
+                    },
+                    "require_saved_project": {"type": "boolean", "default": False},
+                },
+                ["calls"],
+            ),
+        },
+        {
+            "name": "qgis_state_diff",
+            "description": "Summarize events and resources changed between two live-session revisions.",
+            "inputSchema": _object(
+                {
+                    "from_revision": {"type": "integer", "minimum": 0},
+                    "to_revision": {"type": "integer", "minimum": 0},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 1000},
+                },
+                ["from_revision"],
+            ),
+        },
+        {
+            "name": "qgis_diagnostics",
+            "description": "Diagnose invalid layers, missing local sources, failed operations, rendering state, and recent QGIS errors.",
+            "inputSchema": _object(
+                {"include_logs": {"type": "boolean", "default": True}}
+            ),
+        },
+        {
+            "name": "qgis_permissions",
+            "description": "Inspect effective MCP permissions for Python, network, filesystem outputs, credentials, and plugin installation.",
+            "inputSchema": _object({}),
+        },
+        {
+            "name": "qgis_auth",
+            "description": "List or describe opaque QGIS authentication configurations without exposing stored secrets.",
+            "inputSchema": _object(
+                {
+                    "action": {
+                        "type": "string",
+                        "enum": ["list", "describe"],
+                        "default": "list",
+                    },
+                    "authcfg": {"type": "string"},
+                }
+            ),
+        },
+    ]
+)
+
 _MUTATION_TOOLS = {
     "qgis_project_action",
     "qgis_selection_set",
@@ -647,6 +802,10 @@ _MUTATION_TOOLS = {
     "qgis_checkpoint",
     "qgis_workflow",
     "qgis_fire_map",
+    "qgis_tasks",
+    "qgis_render",
+    "qgis_transaction",
+    "qgis_undo",
 }
 for _tool in TOOLS:
     if _tool["name"] in _MUTATION_TOOLS:
@@ -713,4 +872,15 @@ TOOL_METHODS = {
     "qgis_workflow": "workflow.execute",
     "qgis_connectors": "connector.catalog",
     "qgis_fire_map": "connector.fire_map",
+    "qgis_runtime": "runtime.control",
+    "qgis_tasks": "runtime.tasks",
+    "qgis_events": "runtime.events",
+    "qgis_render": "runtime.render",
+    "qgis_transaction": "runtime.transaction",
+    "qgis_undo": "runtime.undo",
+    "qgis_preflight": "runtime.preflight",
+    "qgis_state_diff": "runtime.diff",
+    "qgis_diagnostics": "runtime.diagnostics",
+    "qgis_permissions": "runtime.permissions",
+    "qgis_auth": "runtime.auth",
 }

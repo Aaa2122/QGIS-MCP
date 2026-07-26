@@ -46,6 +46,7 @@ from .revisions import (
     layer_uri,
     operation_uri,
 )
+from .runtime_tools import RuntimeTools
 from .safety import CheckpointManager, ProjectVerifier
 from .serialize import (
     feature_summary,
@@ -80,6 +81,10 @@ MUTATION_METHODS = {
     "checkpoint.execute",
     "workflow.execute",
     "connector.fire_map",
+    "runtime.tasks",
+    "runtime.render",
+    "runtime.transaction",
+    "runtime.undo",
 }
 
 
@@ -160,9 +165,31 @@ class Dispatcher:
             "connector.fire_map": self.fire_map,
             "connector.catalog": self.connector_catalog,
             "batch.execute": self.batch_execute,
+            "runtime.control": self.runtime_control,
+            "runtime.tasks": self.runtime_tasks,
+            "runtime.events": self.runtime_events,
+            "runtime.render": self.runtime_render,
+            "runtime.transaction": self.runtime_transaction,
+            "runtime.undo": self.runtime_undo,
+            "runtime.preflight": self.runtime_preflight,
+            "runtime.diff": self.runtime_diff,
+            "runtime.diagnostics": self.runtime_diagnostics,
+            "runtime.permissions": self.runtime_permissions,
+            "runtime.auth": self.runtime_auth,
             "resources.list": self.resources_list,
             "resources.read": self.resources_read,
         }
+        self.runtime_tools = RuntimeTools(
+            iface,
+            self.state,
+            self.log,
+            self.operations,
+            self._layer,
+            lambda: self._methods,
+            MUTATION_METHODS,
+            self.data,
+            self.layouts,
+        )
         self.workflows = WorkflowManager(
             self.dispatch, self.checkpoints, self.state, self.log
         )
@@ -906,6 +933,39 @@ class Dispatcher:
             "atomic": bool(atomic),
             "rolled_back": rolled_back,
         }
+
+    def runtime_control(self, **params):
+        return self.runtime_tools.runtime(**params)
+
+    def runtime_tasks(self, **params):
+        return self.runtime_tools.tasks(**params)
+
+    def runtime_events(self, **params):
+        return self.runtime_tools.events(**params)
+
+    def runtime_render(self, **params):
+        return self.runtime_tools.render(**params)
+
+    def runtime_transaction(self, **params):
+        return self.runtime_tools.transaction(**params)
+
+    def runtime_undo(self, **params):
+        return self.runtime_tools.undo(**params)
+
+    def runtime_preflight(self, **params):
+        return self.runtime_tools.preflight(**params)
+
+    def runtime_diff(self, **params):
+        return self.runtime_tools.diff(**params)
+
+    def runtime_diagnostics(self, **params):
+        return self.runtime_tools.diagnostics(**params)
+
+    def runtime_permissions(self):
+        return self.runtime_tools.permissions()
+
+    def runtime_auth(self, **params):
+        return self.runtime_tools.auth(**params)
 
     def resources_list(self):
         resources = [

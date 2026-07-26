@@ -325,6 +325,57 @@ class QgisRuntimeTest(unittest.TestCase):
                 result["layer_count"], len(QgsProject.instance().mapLayers())
             )
 
+    def test_10_runtime_events_transactions_and_preflight(self):
+        dispatcher = qgis.utils.plugins["qgis_agent_mcp"].dispatcher
+        runtime = dispatcher.dispatch("runtime.control", {"action": "compatibility"})
+        self.assertIn(runtime["qgis_major"], {3, 4})
+        self.assertTrue(runtime["supported"])
+        providers = dispatcher.dispatch("runtime.control", {"action": "providers"})
+        self.assertIn("ogr", providers["data_providers"])
+
+        layer = QgsVectorLayer("Point?crs=EPSG:4326&field=name:string", "transaction-test", "memory")
+        QgsProject.instance().addMapLayer(layer)
+        try:
+            started = dispatcher.dispatch(
+                "runtime.transaction", {"action": "start", "layers": [layer.id()]}
+            )
+            self.assertTrue(started["layers"][0]["editable"])
+            dispatcher.vector_edit(
+                layer.id(),
+                "add",
+                features=[{"attributes": {"name": "temporary"}, "geometry_wkt": "POINT(1 2)"}],
+            )
+            undo = dispatcher.dispatch(
+                "runtime.undo", {"action": "undo", "layer": layer.id()}
+            )
+            self.assertTrue(undo["can_redo"])
+            rolled_back = dispatcher.dispatch(
+                "runtime.transaction", {"action": "rollback", "layers": [layer.id()]}
+            )
+            self.assertFalse(rolled_back["layers"][0]["editable"])
+
+            checked = dispatcher.dispatch(
+                "runtime.preflight",
+                {
+                    "calls": [
+                        {"method": "project.inspect", "params": {"section": "project"}},
+                        {"method": "vector.edit", "params": {"layer": layer.id(), "action": "start"}},
+                    ]
+                },
+            )
+            self.assertTrue(checked["valid"])
+            self.assertEqual(checked["mutation_count"], 1)
+            events = dispatcher.dispatch("runtime.events", {"after_revision": 0})
+            self.assertGreater(events["current_revision"], 0)
+            diff = dispatcher.dispatch(
+                "runtime.diff", {"from_revision": 0, "to_revision": events["current_revision"]}
+            )
+            self.assertIn("changed_resources", diff)
+        finally:
+            if layer.isEditable():
+                layer.rollBack()
+            QgsProject.instance().removeMapLayer(layer.id())
+
 
 def _rpc(process, request, timeout_ms=15000):
     process.write((json.dumps(request, separators=(",", ":")) + "\n").encode("utf-8"))
