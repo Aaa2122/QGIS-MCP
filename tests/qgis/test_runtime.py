@@ -325,6 +325,628 @@ class QgisRuntimeTest(unittest.TestCase):
                 result["layer_count"], len(QgsProject.instance().mapLayers())
             )
 
+    def test_10_runtime_events_transactions_and_preflight(self):
+        dispatcher = qgis.utils.plugins["qgis_agent_mcp"].dispatcher
+        runtime = dispatcher.dispatch("runtime.control", {"action": "compatibility"})
+        self.assertIn(runtime["qgis_major"], {3, 4})
+        self.assertTrue(runtime["supported"])
+        providers = dispatcher.dispatch("runtime.control", {"action": "providers"})
+        self.assertIn("ogr", providers["data_providers"])
+
+        layer = QgsVectorLayer("Point?crs=EPSG:4326&field=name:string", "transaction-test", "memory")
+        QgsProject.instance().addMapLayer(layer)
+        try:
+            started = dispatcher.dispatch(
+                "runtime.transaction", {"action": "start", "layers": [layer.id()]}
+            )
+            self.assertTrue(started["layers"][0]["editable"])
+            dispatcher.vector_edit(
+                layer.id(),
+                "add",
+                features=[{"attributes": {"name": "temporary"}, "geometry_wkt": "POINT(1 2)"}],
+            )
+            undo = dispatcher.dispatch(
+                "runtime.undo", {"action": "undo", "layer": layer.id()}
+            )
+            self.assertTrue(undo["can_redo"])
+            rolled_back = dispatcher.dispatch(
+                "runtime.transaction", {"action": "rollback", "layers": [layer.id()]}
+            )
+            self.assertFalse(rolled_back["layers"][0]["editable"])
+
+            checked = dispatcher.dispatch(
+                "runtime.preflight",
+                {
+                    "calls": [
+                        {"method": "project.inspect", "params": {"section": "project"}},
+                        {"method": "vector.edit", "params": {"layer": layer.id(), "action": "start"}},
+                    ]
+                },
+            )
+            self.assertTrue(checked["valid"])
+            self.assertEqual(checked["mutation_count"], 1)
+            events = dispatcher.dispatch("runtime.events", {"after_revision": 0})
+            self.assertGreater(events["current_revision"], 0)
+            diff = dispatcher.dispatch(
+                "runtime.diff", {"from_revision": 0, "to_revision": events["current_revision"]}
+            )
+            self.assertIn("changed_resources", diff)
+        finally:
+            if layer.isEditable():
+                layer.rollBack()
+            QgsProject.instance().removeMapLayer(layer.id())
+
+    def test_11_project_canvas_crs_expression_metadata_and_bookmarks(self):
+        dispatcher = qgis.utils.plugins["qgis_agent_mcp"].dispatcher
+        layer = QgsVectorLayer(
+            "Point?crs=EPSG:4326&field=name:string", "project-tools", "memory"
+        )
+        QgsProject.instance().addMapLayer(layer)
+        dispatcher.vector_edit(
+            layer.id(),
+            "add",
+            features=[
+                {
+                    "attributes": {"name": "Paris"},
+                    "geometry_wkt": "POINT(2.35 48.86)",
+                }
+            ],
+        )
+        dispatcher.vector_edit(layer.id(), "commit")
+        original_title = QgsProject.instance().title()
+        bookmark_id = None
+        theme_name = "mcp-project-tools-theme"
+        try:
+            properties = dispatcher.dispatch(
+                "project.properties",
+                {
+                    "action": "set",
+                    "title": "QGIS MCP project tools",
+                    "crs": "EPSG:4326",
+                    "variables": {"mcp_test": "yes"},
+                },
+            )
+            self.assertEqual(properties["title"], "QGIS MCP project tools")
+            self.assertEqual(properties["crs"]["authid"], "EPSG:4326")
+
+            canvas = dispatcher.dispatch(
+                "canvas.control",
+                {
+                    "action": "set_extent",
+                    "extent": [1.0, 47.0, 4.0, 50.0],
+                    "crs": "EPSG:4326",
+                },
+            )
+            self.assertEqual(canvas["crs"], "EPSG:4326")
+            identified = dispatcher.dispatch(
+                "map.identify",
+                {
+                    "point": [2.35, 48.86],
+                    "crs": "EPSG:4326",
+                    "layers": [layer.id()],
+                    "tolerance": 0.01,
+                },
+            )
+            self.assertEqual(
+                identified["results"][0]["features"][0]["attributes"]["name"],
+                "Paris",
+            )
+
+            measured = dispatcher.dispatch(
+                "map.measure",
+                {
+                    "action": "length",
+                    "geometry_wkt": "LINESTRING(2.35 48.86,2.36 48.87)",
+                    "crs": "EPSG:4326",
+                },
+            )
+            self.assertGreater(measured["value"], 0)
+            transformed = dispatcher.dispatch(
+                "crs.control",
+                {
+                    "action": "transform_points",
+                    "source": "EPSG:4326",
+                    "target": "EPSG:3857",
+                    "points": [[2.35, 48.86]],
+                },
+            )
+            self.assertGreater(transformed["points"][0][0], 200000)
+            expression = dispatcher.dispatch(
+                "expression.control",
+                {"action": "evaluate", "expression": "upper('qgis')"},
+            )
+            self.assertEqual(expression["value"], "QGIS")
+
+            metadata = dispatcher.dispatch(
+                "metadata.manage",
+                {
+                    "action": "set",
+                    "layer": layer.id(),
+                    "values": {
+                        "title": "Project tools layer",
+                        "abstract": "MCP integration test",
+                    },
+                },
+            )
+            self.assertEqual(metadata["title"], "Project tools layer")
+            source = dispatcher.dispatch(
+                "layer.source", {"layer": layer.id(), "action": "inspect"}
+            )
+            self.assertTrue(source["valid"])
+
+            bookmark = dispatcher.dispatch(
+                "bookmark.manage",
+                {
+                    "action": "add",
+                    "name": "Paris",
+                    "extent": [2.0, 48.5, 2.7, 49.1],
+                    "crs": "EPSG:4326",
+                },
+            )
+            bookmark_id = bookmark["id"]
+            self.assertEqual(bookmark["name"], "Paris")
+            dispatcher.dispatch(
+                "map_theme.manage", {"action": "capture", "name": theme_name}
+            )
+            themes = dispatcher.dispatch("map_theme.manage", {"action": "list"})
+            self.assertIn(theme_name, {item["name"] for item in themes["themes"]})
+            connections = dispatcher.dispatch(
+                "connection.inspect", {"action": "providers"}
+            )
+            self.assertIn("ogr", connections["providers"])
+        finally:
+            if bookmark_id:
+                dispatcher.dispatch(
+                    "bookmark.manage",
+                    {"action": "remove", "bookmark_id": bookmark_id},
+                )
+            if QgsProject.instance().mapThemeCollection().hasMapTheme(theme_name):
+                dispatcher.dispatch(
+                    "map_theme.manage", {"action": "remove", "name": theme_name}
+                )
+            QgsProject.instance().setTitle(original_title)
+            QgsProject.instance().removeMapLayer(layer.id())
+
+    def test_12_vector_schema_geometry_joins_relations_and_snapping(self):
+        dispatcher = qgis.utils.plugins["qgis_agent_mcp"].dispatcher
+        parent = QgsVectorLayer(
+            "Point?crs=EPSG:4326&field=code:string", "parent-tools", "memory"
+        )
+        child = QgsVectorLayer(
+            "Point?crs=EPSG:4326&field=parent_code:string", "child-tools", "memory"
+        )
+        QgsProject.instance().addMapLayers([parent, child])
+        relation_id = "mcp-vector-tools-relation"
+        try:
+            schema = dispatcher.dispatch(
+                "vector.schema",
+                {
+                    "layer": parent.id(),
+                    "action": "add",
+                    "name": "score",
+                    "field_type": "double",
+                    "alias": "Score",
+                    "default_expression": "1.5",
+                },
+            )
+            self.assertIn("score", {field["name"] for field in schema["fields"]})
+            dispatcher.vector_edit(
+                parent.id(),
+                "add",
+                features=[
+                    {
+                        "attributes": {"code": "A", "score": 5},
+                        "geometry_wkt": "POINT(1 1)",
+                    }
+                ],
+            )
+            dispatcher.vector_edit(parent.id(), "commit")
+            feature_id = next(parent.getFeatures()).id()
+            statistics = dispatcher.dispatch(
+                "vector.statistics",
+                {"layer": parent.id(), "action": "numeric", "field": "score"},
+            )
+            self.assertEqual(statistics["max"], 5)
+            dispatcher.dispatch(
+                "vector.geometry",
+                {
+                    "layer": parent.id(),
+                    "feature_ids": [feature_id],
+                    "action": "translate",
+                    "dx": 2,
+                    "dy": 3,
+                },
+            )
+            moved = parent.getFeature(feature_id).geometry().asPoint()
+            self.assertAlmostEqual(moved.x(), 3)
+            self.assertAlmostEqual(moved.y(), 4)
+            parent.commitChanges()
+
+            joined = dispatcher.dispatch(
+                "vector.join",
+                {
+                    "layer": child.id(),
+                    "action": "add",
+                    "join_layer": parent.id(),
+                    "target_field": "parent_code",
+                    "join_field": "code",
+                    "prefix": "parent_",
+                },
+            )
+            self.assertEqual(joined["joins"][0]["join_layer_id"], parent.id())
+            relations = dispatcher.dispatch(
+                "project.relation",
+                {
+                    "action": "add",
+                    "relation_id": relation_id,
+                    "name": "Parent child",
+                    "referenced_layer": parent.id(),
+                    "referencing_layer": child.id(),
+                    "field_pairs": {"parent_code": "code"},
+                },
+            )
+            self.assertIn(relation_id, {item["id"] for item in relations["relations"]})
+            snapping = dispatcher.dispatch(
+                "project.snapping",
+                {
+                    "action": "set",
+                    "enabled": True,
+                    "mode": "all_layers",
+                    "types": ["vertex", "segment"],
+                    "tolerance": 12,
+                    "units": "pixels",
+                },
+            )
+            self.assertTrue(snapping["enabled"])
+            selected = dispatcher.dispatch(
+                "selection.advanced", {"layer": parent.id(), "action": "all"}
+            )
+            self.assertEqual(selected["selected_count"], 1)
+        finally:
+            manager = QgsProject.instance().relationManager()
+            if relation_id in manager.relations():
+                manager.removeRelation(relation_id)
+            QgsProject.instance().removeMapLayers([parent.id(), child.id()])
+
+    def test_13_processing_batch_assets_and_history(self):
+        dispatcher = qgis.utils.plugins["qgis_agent_mcp"].dispatcher
+        source = QgsVectorLayer("Point?crs=EPSG:4326", "batch-source", "memory")
+        QgsProject.instance().addMapLayer(source)
+        try:
+            providers = dispatcher.dispatch("processing.provider", {"action": "list"})
+            self.assertIn("native", {item["id"] for item in providers["providers"]})
+            assets = dispatcher.dispatch(
+                "processing.assets",
+                {"kind": "algorithms", "query": "buffer", "limit": 20},
+            )
+            self.assertIn("native:buffer", {item["id"] for item in assets["items"]})
+            context = dispatcher.dispatch("processing.context", {})
+            self.assertIn("temporary_folder", context)
+            row = {
+                "INPUT": source.id(),
+                "DISTANCE": 1,
+                "SEGMENTS": 5,
+                "DISSOLVE": False,
+                "END_CAP_STYLE": 0,
+                "JOIN_STYLE": 0,
+                "MITER_LIMIT": 2,
+                "OUTPUT": QgsProcessing.TEMPORARY_OUTPUT,
+            }
+            batch = dispatcher.dispatch(
+                "processing.batch",
+                {"algorithm": "native:buffer", "rows": [row, {**row, "DISTANCE": 2}]},
+            )
+            self.assertEqual(batch["started"], 2)
+            operation_ids = [item["operation"]["id"] for item in batch["items"]]
+            deadline = time.monotonic() + 25
+            statuses = {}
+            while time.monotonic() < deadline:
+                QCoreApplication.processEvents(QEventLoop.AllEvents, 50)
+                statuses = {
+                    operation_id: dispatcher.operation_control(operation_id)
+                    for operation_id in operation_ids
+                }
+                if all(
+                    item["status"] not in {"queued", "running", "cancelling"}
+                    for item in statuses.values()
+                ):
+                    break
+                time.sleep(0.02)
+            self.assertEqual(
+                {item["status"] for item in statuses.values()}, {"succeeded"}
+            )
+            history = dispatcher.dispatch("processing.history", {"action": "list"})
+            self.assertTrue(set(operation_ids) <= {item["id"] for item in history["operations"]})
+        finally:
+            QgsProject.instance().removeMapLayer(source.id())
+
+    def test_14_advanced_cartography_layout_items_and_atlas(self):
+        dispatcher = qgis.utils.plugins["qgis_agent_mcp"].dispatcher
+        layer = QgsVectorLayer(
+            "Point?crs=EPSG:4326&field=kind:string", "cartography-tools", "memory"
+        )
+        QgsProject.instance().addMapLayer(layer)
+        dispatcher.vector_edit(
+            layer.id(),
+            "add",
+            features=[
+                {
+                    "attributes": {"kind": "city"},
+                    "geometry_wkt": "POINT(2.35 48.86)",
+                }
+            ],
+        )
+        dispatcher.vector_edit(layer.id(), "commit")
+        layout_name = "QGIS MCP advanced cartography"
+        try:
+            renderer = dispatcher.dispatch(
+                "cartography.renderer",
+                {
+                    "layer": layer.id(),
+                    "action": "rule_based",
+                    "rules": [
+                        {
+                            "expression": "kind = 'city'",
+                            "label": "Cities",
+                            "color": "#e53935",
+                            "size": 4,
+                        },
+                        {"else": True, "label": "Other", "color": "#607d8b"},
+                    ],
+                },
+            )
+            self.assertIn("rule", renderer["renderer"]["type"].casefold())
+            symbols = dispatcher.dispatch(
+                "cartography.symbol",
+                {"layer": layer.id(), "action": "set", "opacity": 0.8},
+            )
+            self.assertTrue(symbols["symbols"])
+            labels = dispatcher.dispatch(
+                "cartography.labeling",
+                {
+                    "layer": layer.id(),
+                    "action": "set",
+                    "field": "kind",
+                    "font_size": 11,
+                    "buffer_size": 1,
+                    "placement": "around_point",
+                },
+            )
+            self.assertTrue(labels["enabled"])
+            library = dispatcher.dispatch(
+                "style.library", {"action": "list", "kind": "symbols", "limit": 10}
+            )
+            self.assertIn("names", library)
+
+            dispatcher.dispatch(
+                "layout.execute", {"action": "create", "name": layout_name}
+            )
+            map_item = dispatcher.dispatch(
+                "layout.item",
+                {
+                    "layout": layout_name,
+                    "action": "add",
+                    "item_type": "map",
+                    "item_id": "mcp-map",
+                    "x": 10,
+                    "y": 30,
+                    "width": 160,
+                    "height": 120,
+                    "extent": [1.5, 48.4, 3.2, 49.3],
+                    "layers": [layer.id()],
+                },
+            )
+            self.assertEqual(map_item["id"], "mcp-map")
+            label_item = dispatcher.dispatch(
+                "layout.item",
+                {
+                    "layout": layout_name,
+                    "action": "add",
+                    "item_type": "label",
+                    "item_id": "mcp-title",
+                    "text": "Autonomous map",
+                    "x": 10,
+                    "y": 10,
+                },
+            )
+            self.assertEqual(label_item["text"], "Autonomous map")
+            atlas = dispatcher.dispatch(
+                "layout.atlas",
+                {
+                    "layout": layout_name,
+                    "action": "configure",
+                    "coverage_layer": layer.id(),
+                    "filename_expression": "'page_' || @atlas_featurenumber",
+                    "page_name_expression": "kind",
+                },
+            )
+            self.assertTrue(atlas["enabled"])
+            validation = dispatcher.dispatch(
+                "layout.validate", {"layout": layout_name}
+            )
+            self.assertGreater(validation["item_count"], 0)
+        finally:
+            layout = QgsProject.instance().layoutManager().layoutByName(layout_name)
+            if layout:
+                QgsProject.instance().layoutManager().removeLayout(layout)
+            QgsProject.instance().removeMapLayer(layer.id())
+
+    def test_15_specialized_layer_capabilities_temporal_and_elevation(self):
+        dispatcher = qgis.utils.plugins["qgis_agent_mcp"].dispatcher
+        layer = QgsVectorLayer("Point?crs=EPSG:4326", "specialized-data", "memory")
+        QgsProject.instance().addMapLayer(layer)
+        try:
+            properties = dispatcher.dispatch(
+                "layer.properties",
+                {
+                    "layer": layer.id(),
+                    "action": "set",
+                    "opacity": 0.7,
+                    "scale_based_visibility": True,
+                    "minimum_scale": 1000,
+                    "maximum_scale": 100000,
+                },
+            )
+            self.assertAlmostEqual(properties["opacity"], 0.7)
+            self.assertTrue(properties["scale_based_visibility"])
+            capabilities = dispatcher.dispatch(
+                "layer.capabilities",
+                {"layer": layer.id(), "query": "feature", "limit": 100},
+            )
+            self.assertTrue(any("feature" in item.casefold() for item in capabilities["methods"]))
+            temporal = dispatcher.dispatch(
+                "layer.temporal",
+                {"layer": layer.id(), "action": "set_active", "enabled": True},
+            )
+            self.assertTrue(temporal["active"])
+            elevation = dispatcher.dispatch(
+                "layer.elevation", {"layer": layer.id(), "action": "inspect"}
+            )
+            self.assertEqual(elevation["layer_id"], layer.id())
+        finally:
+            QgsProject.instance().removeMapLayer(layer.id())
+
+    def test_16_ecosystem_settings_plugins_gps_server_and_offline(self):
+        dispatcher = qgis.utils.plugins["qgis_agent_mcp"].dispatcher
+        settings_key = "qgis_agent_mcp/tests/ecosystem_roundtrip"
+        try:
+            plugins = dispatcher.dispatch(
+                "ecosystem.plugins", {"action": "list", "query": "qgis agent", "limit": 50}
+            )
+            self.assertIn(
+                "qgis_agent_mcp", {item["package"] for item in plugins["plugins"]}
+            )
+            stored = dispatcher.dispatch(
+                "ecosystem.settings",
+                {"action": "set", "key": settings_key, "value": {"enabled": True}},
+            )
+            self.assertTrue(stored["present"])
+            loaded = dispatcher.dispatch(
+                "ecosystem.settings", {"action": "get", "key": settings_key}
+            )
+            self.assertEqual(loaded["value"], {"enabled": True})
+            shortcuts = dispatcher.dispatch(
+                "ecosystem.shortcuts", {"action": "list", "limit": 10}
+            )
+            self.assertIn("shortcuts", shortcuts)
+            gps = dispatcher.dispatch("ecosystem.gps", {"action": "status"})
+            self.assertIn("connections", gps)
+            views = dispatcher.dispatch("ecosystem.3d", {"action": "list"})
+            self.assertIn("views", views)
+            server = dispatcher.dispatch("ecosystem.server", {"action": "validate"})
+            self.assertIn("valid", server)
+            offline = dispatcher.dispatch("ecosystem.offline", {"action": "status"})
+            self.assertIn("actions", offline)
+        finally:
+            dispatcher.dispatch(
+                "ecosystem.settings", {"action": "remove", "key": settings_key}
+            )
+
+    def test_17_forms_diagrams_annotations_geometry_quality_and_export(self):
+        dispatcher = qgis.utils.plugins["qgis_agent_mcp"].dispatcher
+        layer = QgsVectorLayer(
+            "Point?crs=EPSG:4326&field=label:string&field=a:double&field=b:double",
+            "authoring-tools",
+            "memory",
+        )
+        QgsProject.instance().addMapLayer(layer)
+        annotation_layer_id = None
+        try:
+            dispatcher.vector_edit(
+                layer.id(),
+                "add",
+                features=[
+                    {
+                        "attributes": {"label": "one", "a": 3, "b": 7},
+                        "geometry_wkt": "POINT(2.35 48.86)",
+                    }
+                ],
+            )
+            dispatcher.vector_edit(layer.id(), "commit")
+            form = dispatcher.dispatch(
+                "authoring.forms",
+                {
+                    "layer": layer.id(),
+                    "action": "configure_field",
+                    "field": "label",
+                    "label_on_top": True,
+                    "reuse_last_value": True,
+                },
+            )
+            label_form = next(item for item in form["fields"] if item["name"] == "label")
+            self.assertTrue(label_form["label_on_top"])
+            diagram = dispatcher.dispatch(
+                "authoring.diagrams",
+                {
+                    "layer": layer.id(),
+                    "action": "set",
+                    "diagram_type": "pie",
+                    "fields": ["a", "b"],
+                    "colors": ["#ef5350", "#42a5f5"],
+                },
+            )
+            self.assertTrue(diagram["enabled"])
+            quality = dispatcher.dispatch(
+                "authoring.geometry_quality", {"layer": layer.id(), "action": "validate"}
+            )
+            self.assertEqual(quality["issue_count"], 0)
+            annotation_layer = dispatcher.dispatch(
+                "authoring.annotations",
+                {"action": "create_layer", "name": "MCP annotations"},
+            )
+            annotation_layer_id = annotation_layer["layer"]["id"]
+            annotations = dispatcher.dispatch(
+                "authoring.annotations",
+                {
+                    "action": "add_text",
+                    "layer": annotation_layer_id,
+                    "point": [2.35, 48.86],
+                    "text": "Paris",
+                },
+            )
+            self.assertEqual(len(annotations["items"]), 1)
+            with tempfile.TemporaryDirectory(prefix="qgis-mcp-export-") as directory:
+                output = Path(directory) / "authoring.geojson"
+                exported = dispatcher.dispatch(
+                    "authoring.vector_export",
+                    {
+                        "layer": layer.id(),
+                        "path": str(output),
+                        "format": "geojson",
+                    },
+                )
+                self.assertTrue(Path(exported["path"]).is_file())
+        finally:
+            identifiers = [layer.id()]
+            if annotation_layer_id:
+                identifiers.append(annotation_layer_id)
+            QgsProject.instance().removeMapLayers(identifiers)
+
+    def test_18_compatibility_audit_benchmark_and_self_test(self):
+        dispatcher = qgis.utils.plugins["qgis_agent_mcp"].dispatcher
+        compatibility = dispatcher.dispatch(
+            "qa.compatibility", {"detail": "summary"}
+        )
+        self.assertTrue(compatibility["qgis"]["version"])
+        self.assertGreater(compatibility["bridge"]["method_count"], 100)
+        self.assertGreater(compatibility["processing"]["algorithm_count"], 0)
+        audit = dispatcher.dispatch(
+            "qa.project_audit",
+            {
+                "geometry_sample": 10,
+                "include_server": True,
+                "include_metadata": False,
+            },
+        )
+        self.assertIn(audit["status"], {"passed", "passed_with_warnings", "failed"})
+        benchmark = dispatcher.dispatch(
+            "qa.benchmark", {"action": "run", "iterations": 3}
+        )
+        self.assertEqual(benchmark["iterations"], 3)
+        self.assertGreaterEqual(benchmark["project_snapshot_ms"]["maximum"], 0)
+        health = dispatcher.dispatch("qa.self_test", {})
+        self.assertTrue(health["ok"], health)
+
 
 def _rpc(process, request, timeout_ms=15000):
     process.write((json.dumps(request, separators=(",", ":")) + "\n").encode("utf-8"))
