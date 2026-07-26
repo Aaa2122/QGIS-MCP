@@ -608,6 +608,58 @@ class QgisRuntimeTest(unittest.TestCase):
                 manager.removeRelation(relation_id)
             QgsProject.instance().removeMapLayers([parent.id(), child.id()])
 
+    def test_13_processing_batch_assets_and_history(self):
+        dispatcher = qgis.utils.plugins["qgis_agent_mcp"].dispatcher
+        source = QgsVectorLayer("Point?crs=EPSG:4326", "batch-source", "memory")
+        QgsProject.instance().addMapLayer(source)
+        try:
+            providers = dispatcher.dispatch("processing.provider", {"action": "list"})
+            self.assertIn("native", {item["id"] for item in providers["providers"]})
+            assets = dispatcher.dispatch(
+                "processing.assets",
+                {"kind": "algorithms", "query": "buffer", "limit": 20},
+            )
+            self.assertIn("native:buffer", {item["id"] for item in assets["items"]})
+            context = dispatcher.dispatch("processing.context", {})
+            self.assertIn("temporary_folder", context)
+            row = {
+                "INPUT": source.id(),
+                "DISTANCE": 1,
+                "SEGMENTS": 5,
+                "DISSOLVE": False,
+                "END_CAP_STYLE": 0,
+                "JOIN_STYLE": 0,
+                "MITER_LIMIT": 2,
+                "OUTPUT": QgsProcessing.TEMPORARY_OUTPUT,
+            }
+            batch = dispatcher.dispatch(
+                "processing.batch",
+                {"algorithm": "native:buffer", "rows": [row, {**row, "DISTANCE": 2}]},
+            )
+            self.assertEqual(batch["started"], 2)
+            operation_ids = [item["operation"]["id"] for item in batch["items"]]
+            deadline = time.monotonic() + 25
+            statuses = {}
+            while time.monotonic() < deadline:
+                QCoreApplication.processEvents(QEventLoop.AllEvents, 50)
+                statuses = {
+                    operation_id: dispatcher.operation_control(operation_id)
+                    for operation_id in operation_ids
+                }
+                if all(
+                    item["status"] not in {"queued", "running", "cancelling"}
+                    for item in statuses.values()
+                ):
+                    break
+                time.sleep(0.02)
+            self.assertEqual(
+                {item["status"] for item in statuses.values()}, {"succeeded"}
+            )
+            history = dispatcher.dispatch("processing.history", {"action": "list"})
+            self.assertTrue(set(operation_ids) <= {item["id"] for item in history["operations"]})
+        finally:
+            QgsProject.instance().removeMapLayer(source.id())
+
 
 def _rpc(process, request, timeout_ms=15000):
     process.write((json.dumps(request, separators=(",", ":")) + "\n").encode("utf-8"))

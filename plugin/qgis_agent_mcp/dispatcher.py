@@ -36,6 +36,7 @@ from .cartography import CartographyManager, LayoutManager, ProjectLayerManager
 from .connectors import FireMapManager
 from .data_sources import DataAcquisitionManager
 from .operations import OperationManager
+from .processing_database_tools import ProcessingDatabaseTools
 from .project_tools import ProjectTools
 from .reliability import IdempotencyConflict, MutationGuard
 from .revisions import (
@@ -103,6 +104,11 @@ MUTATION_METHODS = {
     "project.relation",
     "project.snapping",
     "selection.advanced",
+    "processing.provider",
+    "processing.batch",
+    "processing.history",
+    "database.control",
+    "connection.manage",
 }
 
 
@@ -216,6 +222,13 @@ class Dispatcher:
             "project.snapping": self.project_snapping,
             "selection.advanced": self.advanced_selection,
             "raster.inspect": self.raster_inspect,
+            "processing.provider": self.processing_provider,
+            "processing.batch": self.processing_batch,
+            "processing.history": self.processing_history,
+            "processing.assets": self.processing_assets,
+            "processing.context": self.processing_context,
+            "database.control": self.database_control,
+            "connection.manage": self.connection_manage,
             "resources.list": self.resources_list,
             "resources.read": self.resources_read,
         }
@@ -232,6 +245,9 @@ class Dispatcher:
         )
         self.project_tools = ProjectTools(iface, self.state, self._layer)
         self.vector_raster_tools = VectorRasterTools(self.state, self._layer)
+        self.processing_database_tools = ProcessingDatabaseTools(
+            self.state, self.operations
+        )
         self.workflows = WorkflowManager(
             self.dispatch, self.checkpoints, self.state, self.log
         )
@@ -1074,6 +1090,27 @@ class Dispatcher:
 
     def raster_inspect(self, **params):
         return self.vector_raster_tools.raster(**params)
+
+    def processing_provider(self, **params):
+        return self.processing_database_tools.processing_providers(**params)
+
+    def processing_batch(self, **params):
+        return self.processing_database_tools.processing_batch(**params)
+
+    def processing_history(self, **params):
+        return self.processing_database_tools.processing_history(**params)
+
+    def processing_assets(self, **params):
+        return self.processing_database_tools.processing_assets(**params)
+
+    def processing_context(self):
+        return self.processing_database_tools.processing_context()
+
+    def database_control(self, **params):
+        return self.processing_database_tools.database(**params)
+
+    def connection_manage(self, **params):
+        return self.processing_database_tools.connection_manage(**params)
 
     def resources_list(self):
         resources = [
