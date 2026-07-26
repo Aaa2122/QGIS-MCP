@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from qgis.core import QgsApplication
-from qgis.PyQt.QtCore import Qt
+from qgis.PyQt.QtCore import QEventLoop, Qt
 from qgis.PyQt.QtWidgets import (
     QApplication,
     QDialog,
@@ -155,7 +155,7 @@ class ConnectAiDialog(QDialog):
         try:
             message = connector.install(self.spec)
             self._append(message)
-            result = health_check(self.spec)
+            result = health_check(self.spec, event_pump=self._process_bridge_events)
             healthy = (
                 "QGIS session verified at revision {revision}; "
                 "{layer_count} layer(s)."
@@ -204,7 +204,7 @@ class ConnectAiDialog(QDialog):
             return
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
-            result = health_check(self.spec)
+            result = health_check(self.spec, event_pump=self._process_bridge_events)
             message = (
                 "Connection successful. QGIS revision {revision}; "
                 "{layer_count} layer(s)."
@@ -219,3 +219,7 @@ class ConnectAiDialog(QDialog):
 
     def _append(self, message):
         self.log.appendPlainText(str(message))
+
+    @staticmethod
+    def _process_bridge_events():
+        QApplication.processEvents(QEventLoop.ExcludeUserInputEvents, 25)

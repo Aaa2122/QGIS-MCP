@@ -13,6 +13,7 @@ from qgis_agent_mcp.onboarding import (
     ClaudeCodeConnector,
     CodexConnector,
     CommandResult,
+    CommandRunner,
     LauncherSpec,
     OnboardingError,
     RuntimeManager,
@@ -54,6 +55,22 @@ def test_runtime_manager_requires_packaged_server(tmp_path):
             home=tmp_path,
             python_executable=sys.executable,
         ).ensure()
+
+
+def test_command_runner_pumps_events_while_waiting():
+    pumps = []
+    result = CommandRunner().run(
+        [
+            sys.executable,
+            "-c",
+            "import time; time.sleep(0.2); print('ready')",
+        ],
+        timeout=2,
+        event_pump=lambda: pumps.append(True),
+    )
+    assert result.returncode == 0
+    assert result.stdout.strip() == "ready"
+    assert pumps
 
 
 def test_codex_config_is_preserved_backed_up_and_idempotent(tmp_path):

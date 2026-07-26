@@ -9,6 +9,20 @@ from .revisions import ResourceRevisionIndex
 from .serialize import layer_summary
 
 
+class _SignalRelay(QObject):
+    def __init__(self, callback, parent):
+        super().__init__(parent)
+        self.callback = callback
+
+    def forward(self, *args):
+        if self.callback is not None:
+            self.callback(*args)
+
+    def close(self):
+        self.callback = None
+        self.deleteLater()
+
+
 class StateTracker(QObject):
     changed = pyqtSignal(dict)
 
@@ -25,8 +39,9 @@ class StateTracker(QObject):
         self._connect_project()
 
     def _connect(self, signal, callback):
-        signal.connect(callback)
-        self._connections.append((signal, callback))
+        relay = _SignalRelay(callback, self)
+        signal.connect(relay.forward)
+        self._connections.append(relay)
 
     def _connect_project(self):
         project = QgsProject.instance()
@@ -46,6 +61,7 @@ class StateTracker(QObject):
 
                 self._connect(signal, callback)
         self._connect(project.layersAdded, self._attach_layers)
+        self._connect(project.layersRemoved, self._detach_layers)
         self._attach_layers(list(project.mapLayers().values()))
         canvas = self.iface.mapCanvas()
         for signal_name, event in (
@@ -89,9 +105,15 @@ class StateTracker(QObject):
                     def callback(*args, _event=event, _id=layer.id()):
                         self.touch(_event, {"layer_id": _id})
 
-                    signal.connect(callback)
-                    connections.append((signal, callback))
+                    relay = _SignalRelay(callback, self)
+                    signal.connect(relay.forward)
+                    connections.append(relay)
             self._layer_connections[layer.id()] = connections
+
+    def _detach_layers(self, layer_ids):
+        for layer_id in layer_ids:
+            for relay in self._layer_connections.pop(str(layer_id), []):
+                relay.close()
 
     def touch(self, event, data=None):
         self.revision += 1
@@ -159,17 +181,13 @@ class StateTracker(QObject):
         return self.resources.revision(uri)
 
     def close(self):
-        for signal, callback in self._connections:
-            try:
-                signal.disconnect(callback)
-            except Exception:
-                pass
+        for relay in self._connections:
+            relay.close()
         for connections in self._layer_connections.values():
-            for signal, callback in connections:
-                try:
-                    signal.disconnect(callback)
-                except Exception:
-                    pass
+            for relay in connections:
+                relay.close()
+        self._connections.clear()
+        self._layer_connections.clear()
 
 
 def _compact(value):
