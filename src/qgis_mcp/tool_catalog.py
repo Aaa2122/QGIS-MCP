@@ -626,6 +626,1145 @@ TOOLS: list[dict[str, Any]] = [
     },
 ]
 
+TOOLS.extend(
+    [
+        {
+            "name": "qgis_runtime",
+            "description": "Inspect the live QGIS/Qt/Python runtime, compatibility profile, and installed data or Processing providers.",
+            "inputSchema": _object(
+                {
+                    "action": {
+                        "type": "string",
+                        "enum": ["status", "compatibility", "providers"],
+                        "default": "status",
+                    }
+                }
+            ),
+        },
+        {
+            "name": "qgis_tasks",
+            "description": "List, inspect, or cancel tasks managed by the QGIS task manager.",
+            "inputSchema": _object(
+                {
+                    "action": {
+                        "type": "string",
+                        "enum": ["list", "status", "cancel"],
+                        "default": "list",
+                    },
+                    "task_id": {"type": ["string", "integer"]},
+                }
+            ),
+        },
+        {
+            "name": "qgis_events",
+            "description": "Read bounded revisioned project, layer, canvas, edit, render, and task events from the live session.",
+            "inputSchema": _object(
+                {
+                    "after_revision": {"type": "integer", "minimum": 0, "default": 0},
+                    "until_revision": {"type": "integer", "minimum": 0},
+                    "event_types": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 200},
+                }
+            ),
+        },
+        {
+            "name": "qgis_render",
+            "description": "Inspect, refresh, enable, or cancel rendering on the main QGIS map canvas.",
+            "inputSchema": _object(
+                {
+                    "action": {
+                        "type": "string",
+                        "enum": ["status", "refresh", "refresh_all", "cancel", "set_enabled"],
+                        "default": "status",
+                    },
+                    "enabled": {"type": "boolean"},
+                }
+            ),
+        },
+        {
+            "name": "qgis_transaction",
+            "description": "Coordinate edit sessions across one or more vector layers, including save, commit, and rollback.",
+            "inputSchema": _object(
+                {
+                    "action": {
+                        "type": "string",
+                        "enum": ["status", "start", "save", "commit", "rollback"],
+                        "default": "status",
+                    },
+                    "layers": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Layer IDs or exact names; defaults to all vector layers.",
+                    },
+                    "stop_editing": {"type": "boolean", "default": True},
+                }
+            ),
+        },
+        {
+            "name": "qgis_undo",
+            "description": "Inspect or control the undo stack for an editable vector layer.",
+            "inputSchema": _object(
+                {
+                    "action": {
+                        "type": "string",
+                        "enum": ["status", "undo", "redo"],
+                        "default": "status",
+                    },
+                    "layer": {"type": "string"},
+                    "steps": {"type": "integer", "minimum": 1, "maximum": 100, "default": 1},
+                }
+            ),
+        },
+        {
+            "name": "qgis_preflight",
+            "description": "Validate an autonomous bridge-call plan and report mutations or elevated-trust escape hatches before execution.",
+            "inputSchema": _object(
+                {
+                    "calls": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 100,
+                        "items": _object(
+                            {
+                                "method": {"type": "string"},
+                                "params": {"type": "object"},
+                            },
+                            ["method"],
+                        ),
+                    },
+                    "require_saved_project": {"type": "boolean", "default": False},
+                },
+                ["calls"],
+            ),
+        },
+        {
+            "name": "qgis_state_diff",
+            "description": "Summarize events and resources changed between two live-session revisions.",
+            "inputSchema": _object(
+                {
+                    "from_revision": {"type": "integer", "minimum": 0},
+                    "to_revision": {"type": "integer", "minimum": 0},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 1000},
+                },
+                ["from_revision"],
+            ),
+        },
+        {
+            "name": "qgis_diagnostics",
+            "description": "Diagnose invalid layers, missing local sources, failed operations, rendering state, and recent QGIS errors.",
+            "inputSchema": _object(
+                {"include_logs": {"type": "boolean", "default": True}}
+            ),
+        },
+        {
+            "name": "qgis_permissions",
+            "description": "Inspect effective MCP permissions for Python, network, filesystem outputs, credentials, and plugin installation.",
+            "inputSchema": _object({}),
+        },
+        {
+            "name": "qgis_auth",
+            "description": "List or describe opaque QGIS authentication configurations without exposing stored secrets.",
+            "inputSchema": _object(
+                {
+                    "action": {
+                        "type": "string",
+                        "enum": ["list", "describe"],
+                        "default": "list",
+                    },
+                    "authcfg": {"type": "string"},
+                }
+            ),
+        },
+    ]
+)
+
+TOOLS.extend(
+    [
+        {
+            "name": "qgis_project_manage",
+            "description": "Create, open, save, save-as, close, or inspect the active QGIS project.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["status", "new", "open", "save", "save_as", "close"], "default": "status"},
+                    "path": {"type": "string"},
+                    "save_changes": {"type": "boolean", "default": False},
+                }
+            ),
+        },
+        {
+            "name": "qgis_project_properties",
+            "description": "Read or set project title, home path, CRS, ellipsoid, and custom variables.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["get", "set"], "default": "get"},
+                    "title": {"type": "string"},
+                    "home_path": {"type": "string"},
+                    "crs": {"type": ["string", "integer"]},
+                    "ellipsoid": {"type": "string"},
+                    "variables": {"type": "object"},
+                }
+            ),
+        },
+        {
+            "name": "qgis_project_repair",
+            "description": "Inspect broken project layers or rebind them to replacement data sources without replacing the layer object.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["inspect", "apply"], "default": "inspect"},
+                    "repairs": {
+                        "type": "array",
+                        "items": _object(
+                            {
+                                "layer": {"type": "string"},
+                                "source": {"type": "string"},
+                                "provider": {"type": "string"},
+                                "name": {"type": "string"},
+                            },
+                            ["layer", "source"],
+                        ),
+                    },
+                }
+            ),
+        },
+        {
+            "name": "qgis_source",
+            "description": "Inspect, rebind, reload, or filter the source of a project layer with credential redaction.",
+            "inputSchema": _object(
+                {
+                    "layer": {"type": "string"},
+                    "action": {"type": "string", "enum": ["inspect", "rebind", "reload", "set_subset"], "default": "inspect"},
+                    "source": {"type": "string"},
+                    "provider": {"type": "string"},
+                    "name": {"type": "string"},
+                    "subset": {"type": "string"},
+                },
+                ["layer"],
+            ),
+        },
+        {
+            "name": "qgis_canvas",
+            "description": "List map views or inspect and control a QGIS 2D canvas extent, center, scale, rotation, CRS, and refresh.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["status", "list_views", "set_extent", "set_center", "set_scale", "set_rotation", "set_crs", "zoom_full", "zoom_selected", "refresh"], "default": "status"},
+                    "view": {"type": "string"},
+                    "extent": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number"}},
+                    "center": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "number"}},
+                    "crs": {"type": ["string", "integer"]},
+                    "scale": {"type": "number", "exclusiveMinimum": 0},
+                    "rotation": {"type": "number"},
+                }
+            ),
+        },
+        {
+            "name": "qgis_identify",
+            "description": "Identify vector features and raster band values at a map coordinate across selected or all project layers.",
+            "inputSchema": _object(
+                {
+                    "point": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "number"}},
+                    "crs": {"type": ["string", "integer"]},
+                    "layers": {"type": "array", "items": {"type": "string"}},
+                    "tolerance": {"type": "number", "minimum": 0, "default": 0},
+                    "limit_per_layer": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20},
+                },
+                ["point"],
+            ),
+        },
+        {
+            "name": "qgis_measure",
+            "description": "Measure geodesic length, perimeter, area, or bearing using the project transform context and ellipsoid.",
+            "inputSchema": _object(
+                {
+                    "action": {
+                        "type": "string",
+                        "enum": ["length", "perimeter", "area", "bearing"],
+                    },
+                    "geometry_wkt": {"type": "string"},
+                    "points": {
+                        "type": "array",
+                        "items": {
+                            "type": "array",
+                            "minItems": 2,
+                            "maxItems": 2,
+                            "items": {"type": "number"},
+                        },
+                    },
+                    "crs": {"type": ["string", "integer"]},
+                    "ellipsoid": {"type": "string"},
+                },
+                ["action"],
+            ),
+        },
+        {
+            "name": "qgis_bookmarks",
+            "description": "List, add, remove, or zoom to spatial bookmarks stored in the active project.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["list", "add", "remove", "zoom"], "default": "list"},
+                    "bookmark_id": {"type": "string"},
+                    "name": {"type": "string"},
+                    "group": {"type": "string"},
+                    "extent": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number"}},
+                    "crs": {"type": ["string", "integer"]},
+                    "rotation": {"type": "number", "default": 0},
+                }
+            ),
+        },
+        {
+            "name": "qgis_map_themes",
+            "description": "List, capture, apply, or remove QGIS map themes for reproducible layer visibility and styles.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["list", "capture", "apply", "remove"], "default": "list"},
+                    "name": {"type": "string"},
+                }
+            ),
+        },
+        {
+            "name": "qgis_crs",
+            "description": "Search or describe CRS definitions, transform points, extents, or WKT geometry, and assign a CRS to a layer.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["describe", "search", "transform_points", "transform_extent", "transform_geometry", "assign_layer"], "default": "describe"},
+                    "value": {"type": ["string", "integer"]},
+                    "query": {"type": "string"},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20},
+                    "source": {"type": ["string", "integer"]},
+                    "target": {"type": ["string", "integer"]},
+                    "points": {
+                        "type": "array",
+                        "maxItems": 10000,
+                        "items": {
+                            "type": "array",
+                            "minItems": 2,
+                            "maxItems": 2,
+                            "items": {"type": "number"},
+                        },
+                    },
+                    "extent": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number"}},
+                    "geometry_wkt": {"type": "string"},
+                    "layer": {"type": "string"},
+                }
+            ),
+        },
+        {
+            "name": "qgis_expression",
+            "description": "List QGIS expression functions or validate and evaluate an expression in global, project, layer, and feature scopes.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["functions", "validate", "evaluate"], "default": "validate"},
+                    "expression": {"type": "string"},
+                    "layer": {"type": "string"},
+                    "feature_id": {"type": "integer"},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 100},
+                }
+            ),
+        },
+        {
+            "name": "qgis_metadata",
+            "description": "Read or update structured project or layer metadata such as title, identifier, abstract, language, categories, and history.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["get", "set"], "default": "get"},
+                    "layer": {"type": "string"},
+                    "values": {"type": "object"},
+                }
+            ),
+        },
+        {
+            "name": "qgis_connections",
+            "description": "List connection-capable QGIS providers and stored provider connections without exposing connection secrets.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["providers", "list", "describe"], "default": "list"},
+                    "provider": {"type": "string"},
+                    "name": {"type": "string"},
+                }
+            ),
+        },
+    ]
+)
+
+TOOLS.extend(
+    [
+        {
+            "name": "qgis_vector_schema",
+            "description": "Inspect or edit vector fields, aliases, defaults, constraints, and editor widget setups.",
+            "inputSchema": _object(
+                {
+                    "layer": {"type": "string"},
+                    "action": {"type": "string", "enum": ["inspect", "add", "delete", "rename", "configure"], "default": "inspect"},
+                    "field": {"type": ["string", "integer"]},
+                    "name": {"type": "string"},
+                    "field_type": {"type": "string", "enum": ["string", "integer", "integer64", "double", "boolean", "date", "datetime", "time"], "default": "string"},
+                    "length": {"type": "integer", "minimum": 0, "default": 0},
+                    "precision": {"type": "integer", "minimum": 0, "default": 0},
+                    "alias": {"type": "string"},
+                    "default_expression": {"type": "string"},
+                    "apply_default_on_update": {"type": "boolean", "default": False},
+                    "constraint": {"type": "string", "enum": ["not_null", "unique", "expression"]},
+                    "constraint_expression": {"type": "string"},
+                    "constraint_description": {"type": "string"},
+                    "constraint_strength": {"type": "string", "enum": ["hard", "soft"], "default": "hard"},
+                    "widget_type": {"type": "string"},
+                    "widget_config": {"type": "object"},
+                },
+                ["layer"],
+            ),
+        },
+        {
+            "name": "qgis_vector_statistics",
+            "description": "Inspect vector schema or calculate bounded unique values, value counts, and numeric statistics.",
+            "inputSchema": _object(
+                {
+                    "layer": {"type": "string"},
+                    "action": {"type": "string", "enum": ["summary", "unique", "value_counts", "numeric"], "default": "summary"},
+                    "field": {"type": ["string", "integer"]},
+                    "expression": {"type": "string"},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 10000, "default": 1000},
+                },
+                ["layer"],
+            ),
+        },
+        {
+            "name": "qgis_geometry_edit",
+            "description": "Set, translate, rotate, simplify, or make valid feature geometries inside an undoable edit command.",
+            "inputSchema": _object(
+                {
+                    "layer": {"type": "string"},
+                    "feature_ids": {"type": "array", "minItems": 1, "maxItems": 10000, "items": {"type": "integer"}},
+                    "action": {"type": "string", "enum": ["set", "translate", "rotate", "simplify", "make_valid"]},
+                    "geometry_wkt": {"type": "string"},
+                    "dx": {"type": "number", "default": 0},
+                    "dy": {"type": "number", "default": 0},
+                    "angle": {"type": "number", "default": 0},
+                    "center": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "number"}},
+                    "tolerance": {"type": "number", "minimum": 0, "default": 0},
+                },
+                ["layer", "feature_ids", "action"],
+            ),
+        },
+        {
+            "name": "qgis_vector_indexes",
+            "description": "Inspect spatial index availability or create provider-backed spatial and attribute indexes.",
+            "inputSchema": _object(
+                {
+                    "layer": {"type": "string"},
+                    "action": {"type": "string", "enum": ["inspect", "create_spatial", "create_attribute"], "default": "inspect"},
+                    "field": {"type": ["string", "integer"]},
+                },
+                ["layer"],
+            ),
+        },
+        {
+            "name": "qgis_vector_joins",
+            "description": "List, add, or remove attribute joins between vector layers.",
+            "inputSchema": _object(
+                {
+                    "layer": {"type": "string"},
+                    "action": {"type": "string", "enum": ["list", "add", "remove"], "default": "list"},
+                    "join_layer": {"type": "string"},
+                    "target_field": {"type": "string"},
+                    "join_field": {"type": "string"},
+                    "prefix": {"type": "string"},
+                    "memory_cache": {"type": "boolean", "default": True},
+                    "editable": {"type": "boolean", "default": False},
+                    "upsert": {"type": "boolean", "default": False},
+                },
+                ["layer"],
+            ),
+        },
+        {
+            "name": "qgis_relations",
+            "description": "List, add, or remove project relations with explicit parent/child field pairs.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["list", "add", "remove"], "default": "list"},
+                    "relation_id": {"type": "string"},
+                    "name": {"type": "string"},
+                    "referenced_layer": {"type": "string"},
+                    "referencing_layer": {"type": "string"},
+                    "field_pairs": {
+                        "oneOf": [
+                            {"type": "object", "additionalProperties": {"type": "string"}},
+                            {
+                                "type": "array",
+                                "items": {
+                                    "type": "array",
+                                    "minItems": 2,
+                                    "maxItems": 2,
+                                    "items": {"type": "string"},
+                                },
+                            },
+                        ]
+                    },
+                }
+            ),
+        },
+        {
+            "name": "qgis_snapping",
+            "description": "Read or configure project snapping mode, target types, tolerance, units, intersections, and self-snapping.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["get", "set"], "default": "get"},
+                    "enabled": {"type": "boolean"},
+                    "mode": {"type": "string", "enum": ["active_layer", "all_layers", "advanced"]},
+                    "types": {"type": "array", "items": {"type": "string", "enum": ["vertex", "segment", "area", "centroid", "middle", "endpoint"]}},
+                    "tolerance": {"type": "number", "minimum": 0},
+                    "units": {"type": "string", "enum": ["pixels", "project", "layer"]},
+                    "intersection": {"type": "boolean"},
+                    "self_snapping": {"type": "boolean"},
+                }
+            ),
+        },
+        {
+            "name": "qgis_vector_select",
+            "description": "Select vector features using all, invert, clear, expression, IDs, or a CRS-aware rectangle.",
+            "inputSchema": _object(
+                {
+                    "layer": {"type": "string"},
+                    "action": {"type": "string", "enum": ["all", "invert", "clear", "expression", "ids", "rect"]},
+                    "expression": {"type": "string"},
+                    "feature_ids": {"type": "array", "items": {"type": "integer"}},
+                    "extent": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number"}},
+                    "crs": {"type": ["string", "integer"]},
+                },
+                ["layer", "action"],
+            ),
+        },
+        {
+            "name": "qgis_raster_inspect",
+            "description": "Inspect raster dimensions and bands, sample a pixel, or calculate bounded statistics and histograms.",
+            "inputSchema": _object(
+                {
+                    "layer": {"type": "string"},
+                    "action": {"type": "string", "enum": ["inspect", "sample", "statistics", "histogram"], "default": "inspect"},
+                    "band": {"type": "integer", "minimum": 1, "default": 1},
+                    "point": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "number"}},
+                    "crs": {"type": ["string", "integer"]},
+                    "sample_size": {"type": "integer", "minimum": 0, "default": 0},
+                    "bins": {"type": "integer", "minimum": 2, "maximum": 65536, "default": 256},
+                },
+                ["layer"],
+            ),
+        },
+    ]
+)
+
+TOOLS.extend(
+    [
+        {
+            "name": "qgis_processing_providers",
+            "description": "List or refresh installed Processing providers, algorithms, and supported output extensions.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["list", "refresh"], "default": "list"},
+                    "provider": {"type": "string"},
+                }
+            ),
+        },
+        {
+            "name": "qgis_processing_batch",
+            "description": "Start up to 500 asynchronous runs of one Processing algorithm with independent parameter rows.",
+            "inputSchema": _object(
+                {
+                    "algorithm": {"type": "string"},
+                    "rows": {"type": "array", "minItems": 1, "maxItems": 500, "items": {"type": "object"}},
+                    "retain_outputs": {"type": "boolean", "default": True},
+                    "add_to_project": {"type": "boolean", "default": False},
+                    "stop_on_error": {"type": "boolean", "default": False},
+                },
+                ["algorithm", "rows"],
+            ),
+        },
+        {
+            "name": "qgis_processing_history",
+            "description": "List managed Processing operations or replay a previous operation with the same parameters.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["list", "replay"], "default": "list"},
+                    "operation_id": {"type": "string"},
+                }
+            ),
+        },
+        {
+            "name": "qgis_processing_assets",
+            "description": "List installed Processing algorithms, graphical models, or scripts with bounded search.",
+            "inputSchema": _object(
+                {
+                    "kind": {"type": "string", "enum": ["models", "scripts", "algorithms"], "default": "models"},
+                    "query": {"type": "string", "default": ""},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 100},
+                }
+            ),
+        },
+        {
+            "name": "qgis_processing_context",
+            "description": "Inspect Processing temporary output conventions, temporary folder, providers, and managed operation count.",
+            "inputSchema": _object({}),
+        },
+        {
+            "name": "qgis_database",
+            "description": "Inspect schemas, tables, and fields; run paged SQL; or explicitly mutate database schemas and tables through a stored QGIS connection.",
+            "inputSchema": _object(
+                {
+                    "provider": {"type": "string"},
+                    "connection": {"type": "string"},
+                    "action": {"type": "string", "enum": ["schemas", "tables", "fields", "query", "create_schema", "drop_schema", "rename_schema", "drop_table", "rename_table", "vacuum"], "default": "schemas"},
+                    "schema": {"type": "string", "default": ""},
+                    "table": {"type": "string"},
+                    "sql": {"type": "string"},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 10000, "default": 1000},
+                    "allow_mutation": {"type": "boolean", "default": False},
+                    "new_name": {"type": "string"},
+                },
+                ["provider", "connection"],
+            ),
+        },
+        {
+            "name": "qgis_connection_manage",
+            "description": "Create, test, or delete a stored provider connection; connection URIs are accepted as input but never returned.",
+            "inputSchema": _object(
+                {
+                    "provider": {"type": "string"},
+                    "action": {"type": "string", "enum": ["create", "test", "delete"]},
+                    "name": {"type": "string"},
+                    "uri": {"type": "string"},
+                    "configuration": {"type": "object"},
+                },
+                ["provider", "action"],
+            ),
+        },
+    ]
+)
+
+TOOLS.extend(
+    [
+        {
+            "name": "qgis_renderer",
+            "description": "Inspect vector rendering, create a rule-based renderer, or load and save QML styles.",
+            "inputSchema": _object(
+                {
+                    "layer": {"type": "string"},
+                    "action": {"type": "string", "enum": ["inspect", "rule_based", "save_qml", "load_qml"], "default": "inspect"},
+                    "rules": {"type": "array", "items": {"type": "object"}},
+                    "path": {"type": "string"},
+                },
+                ["layer"],
+            ),
+        },
+        {
+            "name": "qgis_symbol",
+            "description": "Inspect symbol-layer trees or update color, opacity, size, width, and angle across renderer symbols.",
+            "inputSchema": _object(
+                {
+                    "layer": {"type": "string"},
+                    "action": {"type": "string", "enum": ["inspect", "set"], "default": "inspect"},
+                    "color": {"type": "string"},
+                    "opacity": {"type": "number", "minimum": 0, "maximum": 1},
+                    "size": {"type": "number", "minimum": 0},
+                    "width": {"type": "number", "minimum": 0},
+                    "angle": {"type": "number"},
+                },
+                ["layer"],
+            ),
+        },
+        {
+            "name": "qgis_style_library",
+            "description": "List, inspect, save, remove, import, or export items in the active QGIS style library.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["list", "inspect_symbol", "save_layer_symbol", "remove_symbol", "export_xml", "import_xml"], "default": "list"},
+                    "kind": {"type": "string", "enum": ["symbols", "color_ramps", "text_formats", "label_settings"], "default": "symbols"},
+                    "query": {"type": "string", "default": ""},
+                    "name": {"type": "string"},
+                    "layer": {"type": "string"},
+                    "path": {"type": "string"},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 200},
+                }
+            ),
+        },
+        {
+            "name": "qgis_labeling",
+            "description": "Inspect, disable, or configure expression-aware vector labeling with text, buffer, placement, priority, and obstacle settings.",
+            "inputSchema": _object(
+                {
+                    "layer": {"type": "string"},
+                    "action": {"type": "string", "enum": ["inspect", "set", "disable"], "default": "inspect"},
+                    "enabled": {"type": "boolean", "default": True},
+                    "field": {"type": "string"},
+                    "expression": {"type": "string"},
+                    "font_family": {"type": "string"},
+                    "font_size": {"type": "number", "exclusiveMinimum": 0, "default": 10},
+                    "color": {"type": "string", "default": "#202020"},
+                    "buffer_size": {"type": "number", "minimum": 0, "default": 0},
+                    "buffer_color": {"type": "string", "default": "#ffffff"},
+                    "placement": {"type": "string", "enum": ["around_point", "over_point", "line", "curved", "horizontal", "free"]},
+                    "priority": {"type": "number", "minimum": 0, "maximum": 10, "default": 5},
+                    "obstacle": {"type": "boolean", "default": True},
+                },
+                ["layer"],
+            ),
+        },
+        {
+            "name": "qgis_layout_items",
+            "description": "List, add, update, or remove map, label, legend, scale bar, picture, and shape items in a print layout.",
+            "inputSchema": _object(
+                {
+                    "layout": {"type": "string"},
+                    "action": {"type": "string", "enum": ["list", "add", "update", "remove"], "default": "list"},
+                    "item_id": {"type": "string"},
+                    "item_type": {"type": "string", "enum": ["map", "label", "legend", "scalebar", "picture", "shape"]},
+                    "x": {"type": "number"},
+                    "y": {"type": "number"},
+                    "width": {"type": "number", "exclusiveMinimum": 0},
+                    "height": {"type": "number", "exclusiveMinimum": 0},
+                    "rotation": {"type": "number"},
+                    "visible": {"type": "boolean"},
+                    "locked": {"type": "boolean"},
+                    "frame": {"type": "boolean"},
+                    "background": {"type": "boolean"},
+                    "text": {"type": "string"},
+                    "extent": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number"}},
+                    "scale": {"type": "number", "exclusiveMinimum": 0},
+                    "layers": {"type": "array", "items": {"type": "string"}},
+                    "picture_path": {"type": "string"},
+                    "linked_map": {"type": "string"},
+                },
+                ["layout"],
+            ),
+        },
+        {
+            "name": "qgis_atlas",
+            "description": "Inspect, configure, or disable a print-layout atlas with coverage, filtering, sorting, page naming, and filenames.",
+            "inputSchema": _object(
+                {
+                    "layout": {"type": "string"},
+                    "action": {"type": "string", "enum": ["status", "configure", "disable"], "default": "status"},
+                    "coverage_layer": {"type": "string"},
+                    "enabled": {"type": "boolean"},
+                    "filter_expression": {"type": "string"},
+                    "sort_expression": {"type": "string"},
+                    "sort_ascending": {"type": "boolean", "default": True},
+                    "filename_expression": {"type": "string"},
+                    "page_name_expression": {"type": "string"},
+                    "hide_coverage": {"type": "boolean", "default": False},
+                },
+                ["layout"],
+            ),
+        },
+        {
+            "name": "qgis_layout_validate",
+            "description": "Validate layout item IDs, sizes, labels, linked pictures, and atlas coverage before export.",
+            "inputSchema": _object(
+                {"layout": {"type": "string"}}, ["layout"]
+            ),
+        },
+    ]
+)
+
+TOOLS.extend(
+    [
+        {
+            "name": "qgis_layer_properties",
+            "description": "Inspect or update common visual, scale-visibility, naming, reload, and auto-refresh properties on any QGIS map layer.",
+            "inputSchema": _object(
+                {
+                    "layer": {"type": "string"},
+                    "action": {"type": "string", "enum": ["inspect", "set", "reload"], "default": "inspect"},
+                    "name": {"type": "string"},
+                    "opacity": {"type": "number", "minimum": 0, "maximum": 1},
+                    "blend_mode": {"type": "integer"},
+                    "scale_based_visibility": {"type": "boolean"},
+                    "minimum_scale": {"type": "number", "minimum": 0},
+                    "maximum_scale": {"type": "number", "minimum": 0},
+                    "auto_refresh_interval": {"type": "integer", "minimum": 0},
+                },
+                ["layer"],
+            ),
+        },
+        {
+            "name": "qgis_layer_capabilities",
+            "description": "Discover callable layer and data-provider capabilities at runtime, including capabilities added by future QGIS versions and providers.",
+            "inputSchema": _object(
+                {
+                    "layer": {"type": "string"},
+                    "query": {"type": "string", "default": ""},
+                    "include_provider": {"type": "boolean", "default": True},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 300},
+                },
+                ["layer"],
+            ),
+        },
+        {
+            "name": "qgis_raster_style",
+            "description": "Inspect or configure raster opacity, single-band gray, multiband RGB, and explicit pseudocolor rendering.",
+            "inputSchema": _object(
+                {
+                    "layer": {"type": "string"},
+                    "action": {"type": "string", "enum": ["inspect", "set_opacity", "single_band_gray", "multiband_color", "pseudocolor"], "default": "inspect"},
+                    "band": {"type": "integer", "minimum": 1, "default": 1},
+                    "red_band": {"type": "integer", "minimum": 1, "default": 1},
+                    "green_band": {"type": "integer", "minimum": 1, "default": 2},
+                    "blue_band": {"type": "integer", "minimum": 1, "default": 3},
+                    "opacity": {"type": "number", "minimum": 0, "maximum": 1},
+                    "minimum": {"type": "number"},
+                    "maximum": {"type": "number"},
+                    "color_ramp": {
+                        "type": "array",
+                        "minItems": 2,
+                        "items": _object(
+                            {
+                                "value": {"type": "number"},
+                                "color": {"type": "string"},
+                                "label": {"type": "string"},
+                            },
+                            ["value", "color"],
+                        ),
+                    },
+                    "interpolation": {"type": "string", "enum": ["linear", "discrete", "exact"], "default": "linear"},
+                },
+                ["layer"],
+            ),
+        },
+        {
+            "name": "qgis_mesh",
+            "description": "Inspect mesh topology and datasets, reload a mesh, select active scalar/vector datasets, or update opacity.",
+            "inputSchema": _object(
+                {
+                    "layer": {"type": "string"},
+                    "action": {"type": "string", "enum": ["inspect", "reload", "set_active_dataset", "set_opacity"], "default": "inspect"},
+                    "dataset_group": {"type": "integer", "minimum": 0},
+                    "dataset_index": {"type": "integer", "minimum": 0, "default": 0},
+                    "active_scalar": {"type": "boolean"},
+                    "active_vector": {"type": "boolean"},
+                    "opacity": {"type": "number", "minimum": 0, "maximum": 1},
+                },
+                ["layer"],
+            ),
+        },
+        {
+            "name": "qgis_point_cloud",
+            "description": "Inspect point-cloud counts, attributes, statistics, and renderer; reload or update opacity and renderer screen-error budget.",
+            "inputSchema": _object(
+                {
+                    "layer": {"type": "string"},
+                    "action": {"type": "string", "enum": ["inspect", "reload", "set_opacity", "set_point_budget"], "default": "inspect"},
+                    "opacity": {"type": "number", "minimum": 0, "maximum": 1},
+                    "point_budget": {"type": "number", "minimum": 0},
+                },
+                ["layer"],
+            ),
+        },
+        {
+            "name": "qgis_vector_tiles",
+            "description": "Inspect, reload, restyle, or change opacity for vector-tile layers.",
+            "inputSchema": _object(
+                {
+                    "layer": {"type": "string"},
+                    "action": {"type": "string", "enum": ["inspect", "reload", "set_opacity", "load_style"], "default": "inspect"},
+                    "opacity": {"type": "number", "minimum": 0, "maximum": 1},
+                    "style_path": {"type": "string"},
+                },
+                ["layer"],
+            ),
+        },
+        {
+            "name": "qgis_tiled_scene",
+            "description": "Inspect, reload, restyle, or change opacity for tiled 3D scene layers such as 3D Tiles.",
+            "inputSchema": _object(
+                {
+                    "layer": {"type": "string"},
+                    "action": {"type": "string", "enum": ["inspect", "reload", "set_opacity", "load_style"], "default": "inspect"},
+                    "opacity": {"type": "number", "minimum": 0, "maximum": 1},
+                    "style_path": {"type": "string"},
+                },
+                ["layer"],
+            ),
+        },
+        {
+            "name": "qgis_temporal",
+            "description": "Inspect or control layer temporal activation and fixed ISO-8601 time ranges.",
+            "inputSchema": _object(
+                {
+                    "layer": {"type": "string"},
+                    "action": {"type": "string", "enum": ["inspect", "set_active", "set_fixed_range"], "default": "inspect"},
+                    "enabled": {"type": "boolean"},
+                    "start": {"type": "string", "format": "date-time"},
+                    "end": {"type": "string", "format": "date-time"},
+                },
+                ["layer"],
+            ),
+        },
+        {
+            "name": "qgis_elevation",
+            "description": "Inspect or update layer elevation enablement, Z scale, Z offset, and extrusion when supported by the layer type.",
+            "inputSchema": _object(
+                {
+                    "layer": {"type": "string"},
+                    "action": {"type": "string", "enum": ["inspect", "set"], "default": "inspect"},
+                    "enabled": {"type": "boolean"},
+                    "z_scale": {"type": "number"},
+                    "z_offset": {"type": "number"},
+                    "extrusion": {"type": "boolean"},
+                },
+                ["layer"],
+            ),
+        },
+    ]
+)
+
+TOOLS.extend(
+    [
+        {
+            "name": "qgis_plugins",
+            "description": "List, enable, disable, reload, or refresh installed Python plugins and open the QGIS plugin manager.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["list", "enable", "disable", "reload", "refresh_catalog", "show_manager"], "default": "list"},
+                    "plugin": {"type": "string"},
+                    "query": {"type": "string", "default": ""},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 300},
+                }
+            ),
+        },
+        {
+            "name": "qgis_settings",
+            "description": "List, read, set, or remove QGIS settings; secret-like values are always redacted from responses.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["list", "get", "set", "remove"], "default": "list"},
+                    "key": {"type": "string"},
+                    "value": {},
+                    "prefix": {"type": "string", "default": ""},
+                    "query": {"type": "string", "default": ""},
+                    "include_values": {"type": "boolean", "default": False},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 2000, "default": 300},
+                }
+            ),
+        },
+        {
+            "name": "qgis_shortcuts",
+            "description": "List, set, clear, or reset registered QGIS action and widget keyboard shortcuts.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["list", "set", "clear", "reset"], "default": "list"},
+                    "name": {"type": "string"},
+                    "sequence": {"type": "string"},
+                    "query": {"type": "string", "default": ""},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 300},
+                }
+            ),
+        },
+        {
+            "name": "qgis_gps",
+            "description": "Inspect GPS/GNSS devices and fixes, enumerate serial ports, connect to gpsd, or connect, disconnect, and unregister live connections.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["status", "ports", "connect_gpsd", "connect", "disconnect", "unregister"], "default": "status"},
+                    "connection_index": {"type": "integer", "minimum": 0},
+                    "host": {"type": "string", "default": "127.0.0.1"},
+                    "port": {"type": "integer", "minimum": 1, "maximum": 65535, "default": 2947},
+                    "device": {"type": "string", "default": ""},
+                }
+            ),
+        },
+        {
+            "name": "qgis_3d_views",
+            "description": "List, create, configure, or close QGIS 3D map views, including layers, terrain, skybox, labels, eye-dome lighting, and camera settings.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["list", "create", "configure", "close"], "default": "list"},
+                    "name": {"type": "string"},
+                    "background_color": {"type": "string"},
+                    "show_labels": {"type": "boolean"},
+                    "field_of_view": {"type": "number", "exclusiveMinimum": 0, "maximum": 180},
+                    "movement_speed": {"type": "number", "exclusiveMinimum": 0},
+                    "terrain_enabled": {"type": "boolean"},
+                    "skybox_enabled": {"type": "boolean"},
+                    "eye_dome_lighting": {"type": "boolean"},
+                    "layers": {"type": "array", "items": {"type": "string"}},
+                }
+            ),
+        },
+        {
+            "name": "qgis_server",
+            "description": "Validate the active project for QGIS Server or inspect and configure per-layer WMS/WFS publication metadata.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["validate", "inspect_layer", "set_layer"], "default": "validate"},
+                    "layer": {"type": "string"},
+                    "short_name": {"type": "string"},
+                    "title": {"type": "string"},
+                    "wfs_title": {"type": "string"},
+                    "abstract": {"type": "string"},
+                    "keywords": {"type": "string"},
+                    "attribution": {"type": "string"},
+                    "attribution_url": {"type": "string"},
+                    "data_url": {"type": "string"},
+                    "data_url_format": {"type": "string"},
+                    "legend_url": {"type": "string"},
+                    "legend_url_format": {"type": "string"},
+                }
+            ),
+        },
+        {
+            "name": "qgis_offline",
+            "description": "Inspect available Offline Editing and synchronization actions or trigger an explicitly named enabled offline action.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["status", "trigger"], "default": "status"},
+                    "action_name": {"type": "string"},
+                }
+            ),
+        },
+    ]
+)
+
+TOOLS.extend(
+    [
+        {
+            "name": "qgis_forms",
+            "description": "Inspect or configure vector attribute-form layout, custom UI files, suppression, and per-field read-only, label, and reuse behavior.",
+            "inputSchema": _object(
+                {
+                    "layer": {"type": "string"},
+                    "action": {"type": "string", "enum": ["inspect", "set_layout", "configure_field", "set_suppression"], "default": "inspect"},
+                    "layout": {"type": "string", "enum": ["auto", "drag_and_drop", "ui_file"]},
+                    "ui_file": {"type": "string"},
+                    "field": {"type": ["string", "integer"]},
+                    "read_only": {"type": "boolean"},
+                    "label_on_top": {"type": "boolean"},
+                    "reuse_last_value": {"type": "boolean"},
+                    "suppress": {"type": "string", "enum": ["default", "on", "off"]},
+                },
+                ["layer"],
+            ),
+        },
+        {
+            "name": "qgis_diagrams",
+            "description": "Inspect, disable, or configure pie, histogram, stacked-bar, and text diagrams over vector features.",
+            "inputSchema": _object(
+                {
+                    "layer": {"type": "string"},
+                    "action": {"type": "string", "enum": ["inspect", "set", "disable"], "default": "inspect"},
+                    "diagram_type": {"type": "string", "enum": ["pie", "histogram", "stacked_bar", "text"], "default": "pie"},
+                    "fields": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+                    "colors": {"type": "array", "items": {"type": "string"}},
+                    "labels": {"type": "array", "items": {"type": "string"}},
+                    "width": {"type": "number", "exclusiveMinimum": 0, "default": 15},
+                    "height": {"type": "number", "exclusiveMinimum": 0, "default": 15},
+                    "opacity": {"type": "number", "minimum": 0, "maximum": 1, "default": 1},
+                    "pen_color": {"type": "string", "default": "#404040"},
+                    "pen_width": {"type": "number", "minimum": 0, "default": 0.3},
+                    "placement": {"type": "string", "enum": ["around_point", "over_point", "line", "curved", "horizontal", "free"], "default": "around_point"},
+                    "priority": {"type": "integer", "minimum": 0, "maximum": 10, "default": 5},
+                    "obstacle": {"type": "boolean", "default": False},
+                },
+                ["layer"],
+            ),
+        },
+        {
+            "name": "qgis_annotations",
+            "description": "Create annotation layers and list, add, remove, or clear marker and point-text annotations.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["list", "create_layer", "add_marker", "add_text", "remove", "clear"], "default": "list"},
+                    "layer": {"type": "string"},
+                    "name": {"type": "string"},
+                    "item_id": {"type": "string"},
+                    "point": {"type": "array", "minItems": 2, "maxItems": 3, "items": {"type": "number"}},
+                    "text": {"type": "string"},
+                    "color": {"type": "string", "default": "#e53935"},
+                    "size": {"type": "number", "exclusiveMinimum": 0, "default": 4},
+                    "font_size": {"type": "number", "exclusiveMinimum": 0, "default": 10},
+                }
+            ),
+        },
+        {
+            "name": "qgis_geometry_quality",
+            "description": "Detect empty, duplicate, and invalid vector geometries or make invalid geometries valid in one undoable edit command.",
+            "inputSchema": _object(
+                {
+                    "layer": {"type": "string"},
+                    "action": {"type": "string", "enum": ["validate", "repair"], "default": "validate"},
+                    "expression": {"type": "string"},
+                    "selected_only": {"type": "boolean", "default": False},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 100000, "default": 10000},
+                },
+                ["layer"],
+            ),
+        },
+        {
+            "name": "qgis_vector_export",
+            "description": "Export a vector layer or selection to GeoPackage, GeoJSON, Shapefile, CSV, KML, GML, DXF, FlatGeobuf, or Parquet with optional reprojection.",
+            "inputSchema": _object(
+                {
+                    "layer": {"type": "string"},
+                    "path": {"type": "string"},
+                    "format": {"type": "string", "enum": ["gpkg", "geojson", "shapefile", "csv", "kml", "gml", "dxf", "flatgeobuf", "parquet"], "default": "gpkg"},
+                    "layer_name": {"type": "string"},
+                    "encoding": {"type": "string", "default": "UTF-8"},
+                    "selected_only": {"type": "boolean", "default": False},
+                    "fields": {"type": "array", "items": {"type": ["string", "integer"]}},
+                    "destination_crs": {"type": "string"},
+                    "overwrite": {"type": "boolean", "default": False},
+                    "create_parent": {"type": "boolean", "default": False},
+                    "include_z": {"type": "boolean", "default": False},
+                    "save_metadata": {"type": "boolean", "default": True},
+                },
+                ["layer", "path"],
+            ),
+        },
+    ]
+)
+
+TOOLS.extend(
+    [
+        {
+            "name": "qgis_compatibility",
+            "description": "Report QGIS, Qt, provider, Processing, layer-class, and bridge-method compatibility for the running installation.",
+            "inputSchema": _object(
+                {
+                    "detail": {"type": "string", "enum": ["summary", "standard", "full"], "default": "standard"},
+                }
+            ),
+        },
+        {
+            "name": "qgis_project_audit",
+            "description": "Run a consolidated delivery audit over project, layers, sampled geometries, schemas, metadata, layouts, edits, provenance, and QGIS Server validation.",
+            "inputSchema": _object(
+                {
+                    "geometry_sample": {"type": "integer", "minimum": 0, "maximum": 1000, "default": 100},
+                    "require_layout": {"type": "boolean", "default": False},
+                    "require_saved": {"type": "boolean", "default": False},
+                    "include_server": {"type": "boolean", "default": True},
+                    "include_metadata": {"type": "boolean", "default": True},
+                }
+            ),
+        },
+        {
+            "name": "qgis_benchmark",
+            "description": "Measure bounded active-project tree and layer-summary latency or produce a versioned local baseline result.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["run", "baseline"], "default": "run"},
+                    "iterations": {"type": "integer", "minimum": 1, "maximum": 200, "default": 20},
+                    "include_layers": {"type": "boolean", "default": True},
+                }
+            ),
+        },
+        {
+            "name": "qgis_self_test",
+            "description": "Run fast, non-mutating health probes for the QGIS interface, project, canvas, providers, Processing registry, and bridge routing.",
+            "inputSchema": _object({}),
+        },
+    ]
+)
+
 _MUTATION_TOOLS = {
     "qgis_project_action",
     "qgis_selection_set",
@@ -647,6 +1786,57 @@ _MUTATION_TOOLS = {
     "qgis_checkpoint",
     "qgis_workflow",
     "qgis_fire_map",
+    "qgis_tasks",
+    "qgis_render",
+    "qgis_transaction",
+    "qgis_undo",
+    "qgis_project_manage",
+    "qgis_project_properties",
+    "qgis_project_repair",
+    "qgis_source",
+    "qgis_canvas",
+    "qgis_bookmarks",
+    "qgis_map_themes",
+    "qgis_crs",
+    "qgis_metadata",
+    "qgis_vector_schema",
+    "qgis_geometry_edit",
+    "qgis_vector_indexes",
+    "qgis_vector_joins",
+    "qgis_relations",
+    "qgis_snapping",
+    "qgis_vector_select",
+    "qgis_processing_providers",
+    "qgis_processing_batch",
+    "qgis_processing_history",
+    "qgis_database",
+    "qgis_connection_manage",
+    "qgis_renderer",
+    "qgis_symbol",
+    "qgis_style_library",
+    "qgis_labeling",
+    "qgis_layout_items",
+    "qgis_atlas",
+    "qgis_layer_properties",
+    "qgis_raster_style",
+    "qgis_mesh",
+    "qgis_point_cloud",
+    "qgis_vector_tiles",
+    "qgis_tiled_scene",
+    "qgis_temporal",
+    "qgis_elevation",
+    "qgis_plugins",
+    "qgis_settings",
+    "qgis_shortcuts",
+    "qgis_gps",
+    "qgis_3d_views",
+    "qgis_server",
+    "qgis_offline",
+    "qgis_forms",
+    "qgis_diagrams",
+    "qgis_annotations",
+    "qgis_geometry_quality",
+    "qgis_vector_export",
 }
 for _tool in TOOLS:
     if _tool["name"] in _MUTATION_TOOLS:
@@ -713,4 +1903,76 @@ TOOL_METHODS = {
     "qgis_workflow": "workflow.execute",
     "qgis_connectors": "connector.catalog",
     "qgis_fire_map": "connector.fire_map",
+    "qgis_runtime": "runtime.control",
+    "qgis_tasks": "runtime.tasks",
+    "qgis_events": "runtime.events",
+    "qgis_render": "runtime.render",
+    "qgis_transaction": "runtime.transaction",
+    "qgis_undo": "runtime.undo",
+    "qgis_preflight": "runtime.preflight",
+    "qgis_state_diff": "runtime.diff",
+    "qgis_diagnostics": "runtime.diagnostics",
+    "qgis_permissions": "runtime.permissions",
+    "qgis_auth": "runtime.auth",
+    "qgis_project_manage": "project.manage",
+    "qgis_project_properties": "project.properties",
+    "qgis_project_repair": "project.repair",
+    "qgis_source": "layer.source",
+    "qgis_canvas": "canvas.control",
+    "qgis_identify": "map.identify",
+    "qgis_measure": "map.measure",
+    "qgis_bookmarks": "bookmark.manage",
+    "qgis_map_themes": "map_theme.manage",
+    "qgis_crs": "crs.control",
+    "qgis_expression": "expression.control",
+    "qgis_metadata": "metadata.manage",
+    "qgis_connections": "connection.inspect",
+    "qgis_vector_schema": "vector.schema",
+    "qgis_vector_statistics": "vector.statistics",
+    "qgis_geometry_edit": "vector.geometry",
+    "qgis_vector_indexes": "vector.index",
+    "qgis_vector_joins": "vector.join",
+    "qgis_relations": "project.relation",
+    "qgis_snapping": "project.snapping",
+    "qgis_vector_select": "selection.advanced",
+    "qgis_raster_inspect": "raster.inspect",
+    "qgis_processing_providers": "processing.provider",
+    "qgis_processing_batch": "processing.batch",
+    "qgis_processing_history": "processing.history",
+    "qgis_processing_assets": "processing.assets",
+    "qgis_processing_context": "processing.context",
+    "qgis_database": "database.control",
+    "qgis_connection_manage": "connection.manage",
+    "qgis_renderer": "cartography.renderer",
+    "qgis_symbol": "cartography.symbol",
+    "qgis_style_library": "style.library",
+    "qgis_labeling": "cartography.labeling",
+    "qgis_layout_items": "layout.item",
+    "qgis_atlas": "layout.atlas",
+    "qgis_layout_validate": "layout.validate",
+    "qgis_layer_properties": "layer.properties",
+    "qgis_layer_capabilities": "layer.capabilities",
+    "qgis_raster_style": "raster.style",
+    "qgis_mesh": "mesh.control",
+    "qgis_point_cloud": "point_cloud.control",
+    "qgis_vector_tiles": "vector_tile.control",
+    "qgis_tiled_scene": "tiled_scene.control",
+    "qgis_temporal": "layer.temporal",
+    "qgis_elevation": "layer.elevation",
+    "qgis_plugins": "ecosystem.plugins",
+    "qgis_settings": "ecosystem.settings",
+    "qgis_shortcuts": "ecosystem.shortcuts",
+    "qgis_gps": "ecosystem.gps",
+    "qgis_3d_views": "ecosystem.3d",
+    "qgis_server": "ecosystem.server",
+    "qgis_offline": "ecosystem.offline",
+    "qgis_forms": "authoring.forms",
+    "qgis_diagrams": "authoring.diagrams",
+    "qgis_annotations": "authoring.annotations",
+    "qgis_geometry_quality": "authoring.geometry_quality",
+    "qgis_vector_export": "authoring.vector_export",
+    "qgis_compatibility": "qa.compatibility",
+    "qgis_project_audit": "qa.project_audit",
+    "qgis_benchmark": "qa.benchmark",
+    "qgis_self_test": "qa.self_test",
 }

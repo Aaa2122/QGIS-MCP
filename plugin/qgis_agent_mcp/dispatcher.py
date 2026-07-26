@@ -31,11 +31,17 @@ from qgis.PyQt.QtWidgets import (
     QWidget,
 )
 
+from .advanced_cartography import AdvancedCartographyTools
+from .authoring_tools import AuthoringTools
 from .capabilities import CapabilityIndex, ObjectRegistry
 from .cartography import CartographyManager, LayoutManager, ProjectLayerManager
 from .connectors import FireMapManager
 from .data_sources import DataAcquisitionManager
+from .ecosystem_tools import EcosystemTools
 from .operations import OperationManager
+from .processing_database_tools import ProcessingDatabaseTools
+from .project_tools import ProjectTools
+from .qa_tools import QaTools
 from .reliability import IdempotencyConflict, MutationGuard
 from .revisions import (
     CAPABILITIES_URI,
@@ -46,6 +52,7 @@ from .revisions import (
     layer_uri,
     operation_uri,
 )
+from .runtime_tools import RuntimeTools
 from .safety import CheckpointManager, ProjectVerifier
 from .serialize import (
     feature_summary,
@@ -54,8 +61,10 @@ from .serialize import (
     layer_summary,
     renderer_summary,
 )
+from .specialized_data_tools import SpecializedDataTools
 from .state import StateTracker
 from .store import ArtifactStore, EventLog, HandleStore
+from .vector_raster_tools import VectorRasterTools
 from .workflows import WorkflowManager
 
 MAX_INLINE_RESULT_BYTES = 1024 * 1024
@@ -80,6 +89,57 @@ MUTATION_METHODS = {
     "checkpoint.execute",
     "workflow.execute",
     "connector.fire_map",
+    "runtime.tasks",
+    "runtime.render",
+    "runtime.transaction",
+    "runtime.undo",
+    "project.manage",
+    "project.properties",
+    "project.repair",
+    "layer.source",
+    "canvas.control",
+    "bookmark.manage",
+    "map_theme.manage",
+    "crs.control",
+    "metadata.manage",
+    "vector.schema",
+    "vector.geometry",
+    "vector.index",
+    "vector.join",
+    "project.relation",
+    "project.snapping",
+    "selection.advanced",
+    "processing.provider",
+    "processing.batch",
+    "processing.history",
+    "database.control",
+    "connection.manage",
+    "cartography.renderer",
+    "cartography.symbol",
+    "style.library",
+    "cartography.labeling",
+    "layout.item",
+    "layout.atlas",
+    "layer.properties",
+    "raster.style",
+    "mesh.control",
+    "point_cloud.control",
+    "vector_tile.control",
+    "tiled_scene.control",
+    "layer.temporal",
+    "layer.elevation",
+    "ecosystem.plugins",
+    "ecosystem.settings",
+    "ecosystem.shortcuts",
+    "ecosystem.gps",
+    "ecosystem.3d",
+    "ecosystem.server",
+    "ecosystem.offline",
+    "authoring.forms",
+    "authoring.diagrams",
+    "authoring.annotations",
+    "authoring.geometry_quality",
+    "authoring.vector_export",
 }
 
 
@@ -160,9 +220,104 @@ class Dispatcher:
             "connector.fire_map": self.fire_map,
             "connector.catalog": self.connector_catalog,
             "batch.execute": self.batch_execute,
+            "runtime.control": self.runtime_control,
+            "runtime.tasks": self.runtime_tasks,
+            "runtime.events": self.runtime_events,
+            "runtime.render": self.runtime_render,
+            "runtime.transaction": self.runtime_transaction,
+            "runtime.undo": self.runtime_undo,
+            "runtime.preflight": self.runtime_preflight,
+            "runtime.diff": self.runtime_diff,
+            "runtime.diagnostics": self.runtime_diagnostics,
+            "runtime.permissions": self.runtime_permissions,
+            "runtime.auth": self.runtime_auth,
+            "project.manage": self.project_manage,
+            "project.properties": self.project_properties,
+            "project.repair": self.project_repair,
+            "layer.source": self.layer_source,
+            "canvas.control": self.canvas_control,
+            "map.identify": self.map_identify,
+            "map.measure": self.map_measure,
+            "bookmark.manage": self.bookmark_manage,
+            "map_theme.manage": self.map_theme_manage,
+            "crs.control": self.crs_control,
+            "expression.control": self.expression_control,
+            "metadata.manage": self.metadata_manage,
+            "connection.inspect": self.connection_inspect,
+            "vector.schema": self.vector_schema,
+            "vector.statistics": self.vector_statistics,
+            "vector.geometry": self.geometry_edit,
+            "vector.index": self.vector_indexes,
+            "vector.join": self.vector_joins,
+            "project.relation": self.project_relations,
+            "project.snapping": self.project_snapping,
+            "selection.advanced": self.advanced_selection,
+            "raster.inspect": self.raster_inspect,
+            "processing.provider": self.processing_provider,
+            "processing.batch": self.processing_batch,
+            "processing.history": self.processing_history,
+            "processing.assets": self.processing_assets,
+            "processing.context": self.processing_context,
+            "database.control": self.database_control,
+            "connection.manage": self.connection_manage,
+            "cartography.renderer": self.advanced_renderer,
+            "cartography.symbol": self.advanced_symbol,
+            "style.library": self.style_library,
+            "cartography.labeling": self.advanced_labeling,
+            "layout.item": self.layout_item,
+            "layout.atlas": self.layout_atlas,
+            "layout.validate": self.layout_validate,
+            "layer.properties": self.specialized_layer_properties,
+            "layer.capabilities": self.specialized_layer_capabilities,
+            "raster.style": self.specialized_raster_style,
+            "mesh.control": self.specialized_mesh,
+            "point_cloud.control": self.specialized_point_cloud,
+            "vector_tile.control": self.specialized_vector_tiles,
+            "tiled_scene.control": self.specialized_tiled_scene,
+            "layer.temporal": self.specialized_temporal,
+            "layer.elevation": self.specialized_elevation,
+            "ecosystem.plugins": self.ecosystem_plugins,
+            "ecosystem.settings": self.ecosystem_settings,
+            "ecosystem.shortcuts": self.ecosystem_shortcuts,
+            "ecosystem.gps": self.ecosystem_gps,
+            "ecosystem.3d": self.ecosystem_3d,
+            "ecosystem.server": self.ecosystem_server,
+            "ecosystem.offline": self.ecosystem_offline,
+            "authoring.forms": self.authoring_forms,
+            "authoring.diagrams": self.authoring_diagrams,
+            "authoring.annotations": self.authoring_annotations,
+            "authoring.geometry_quality": self.authoring_geometry_quality,
+            "authoring.vector_export": self.authoring_vector_export,
+            "qa.compatibility": self.qa_compatibility,
+            "qa.project_audit": self.qa_project_audit,
+            "qa.benchmark": self.qa_benchmark,
+            "qa.self_test": self.qa_self_test,
             "resources.list": self.resources_list,
             "resources.read": self.resources_read,
         }
+        self.runtime_tools = RuntimeTools(
+            iface,
+            self.state,
+            self.log,
+            self.operations,
+            self._layer,
+            lambda: self._methods,
+            MUTATION_METHODS,
+            self.data,
+            self.layouts,
+        )
+        self.project_tools = ProjectTools(iface, self.state, self._layer)
+        self.vector_raster_tools = VectorRasterTools(self.state, self._layer)
+        self.processing_database_tools = ProcessingDatabaseTools(
+            self.state, self.operations
+        )
+        self.advanced_cartography = AdvancedCartographyTools(
+            self.state, self._layer
+        )
+        self.specialized_data_tools = SpecializedDataTools(self.state, self._layer)
+        self.ecosystem_tools = EcosystemTools(iface, self.state)
+        self.authoring_tools = AuthoringTools(self.state, self._layer)
+        self.qa_tools = QaTools(iface, self.state, self.verifier, lambda: self._methods)
         self.workflows = WorkflowManager(
             self.dispatch, self.checkpoints, self.state, self.log
         )
@@ -906,6 +1061,222 @@ class Dispatcher:
             "atomic": bool(atomic),
             "rolled_back": rolled_back,
         }
+
+    def runtime_control(self, **params):
+        return self.runtime_tools.runtime(**params)
+
+    def runtime_tasks(self, **params):
+        return self.runtime_tools.tasks(**params)
+
+    def runtime_events(self, **params):
+        return self.runtime_tools.events(**params)
+
+    def runtime_render(self, **params):
+        return self.runtime_tools.render(**params)
+
+    def runtime_transaction(self, **params):
+        return self.runtime_tools.transaction(**params)
+
+    def runtime_undo(self, **params):
+        return self.runtime_tools.undo(**params)
+
+    def runtime_preflight(self, **params):
+        return self.runtime_tools.preflight(**params)
+
+    def runtime_diff(self, **params):
+        return self.runtime_tools.diff(**params)
+
+    def runtime_diagnostics(self, **params):
+        return self.runtime_tools.diagnostics(**params)
+
+    def runtime_permissions(self):
+        return self.runtime_tools.permissions()
+
+    def runtime_auth(self, **params):
+        return self.runtime_tools.auth(**params)
+
+    def project_manage(self, **params):
+        return self.project_tools.project(**params)
+
+    def project_properties(self, **params):
+        return self.project_tools.project_properties(**params)
+
+    def project_repair(self, **params):
+        return self.project_tools.repair(**params)
+
+    def layer_source(self, **params):
+        return self.project_tools.source(**params)
+
+    def canvas_control(self, **params):
+        return self.project_tools.canvas(**params)
+
+    def map_identify(self, **params):
+        return self.project_tools.identify(**params)
+
+    def map_measure(self, **params):
+        return self.project_tools.measure(**params)
+
+    def bookmark_manage(self, **params):
+        return self.project_tools.bookmarks(**params)
+
+    def map_theme_manage(self, **params):
+        return self.project_tools.themes(**params)
+
+    def crs_control(self, **params):
+        return self.project_tools.crs(**params)
+
+    def expression_control(self, **params):
+        return self.project_tools.expression(**params)
+
+    def metadata_manage(self, **params):
+        return self.project_tools.metadata(**params)
+
+    def connection_inspect(self, **params):
+        return self.project_tools.connections(**params)
+
+    def vector_schema(self, **params):
+        return self.vector_raster_tools.vector_schema(**params)
+
+    def vector_statistics(self, **params):
+        return self.vector_raster_tools.vector_statistics(**params)
+
+    def geometry_edit(self, **params):
+        return self.vector_raster_tools.geometry_edit(**params)
+
+    def vector_indexes(self, **params):
+        return self.vector_raster_tools.indexes(**params)
+
+    def vector_joins(self, **params):
+        return self.vector_raster_tools.joins(**params)
+
+    def project_relations(self, **params):
+        return self.vector_raster_tools.relations(**params)
+
+    def project_snapping(self, **params):
+        return self.vector_raster_tools.snapping(**params)
+
+    def advanced_selection(self, **params):
+        return self.vector_raster_tools.select(**params)
+
+    def raster_inspect(self, **params):
+        return self.vector_raster_tools.raster(**params)
+
+    def processing_provider(self, **params):
+        return self.processing_database_tools.processing_providers(**params)
+
+    def processing_batch(self, **params):
+        return self.processing_database_tools.processing_batch(**params)
+
+    def processing_history(self, **params):
+        return self.processing_database_tools.processing_history(**params)
+
+    def processing_assets(self, **params):
+        return self.processing_database_tools.processing_assets(**params)
+
+    def processing_context(self):
+        return self.processing_database_tools.processing_context()
+
+    def database_control(self, **params):
+        return self.processing_database_tools.database(**params)
+
+    def connection_manage(self, **params):
+        return self.processing_database_tools.connection_manage(**params)
+
+    def advanced_renderer(self, **params):
+        return self.advanced_cartography.renderer(**params)
+
+    def advanced_symbol(self, **params):
+        return self.advanced_cartography.symbol(**params)
+
+    def style_library(self, **params):
+        return self.advanced_cartography.style_library(**params)
+
+    def advanced_labeling(self, **params):
+        return self.advanced_cartography.labeling(**params)
+
+    def layout_item(self, **params):
+        return self.advanced_cartography.layout_items(**params)
+
+    def layout_atlas(self, **params):
+        return self.advanced_cartography.atlas(**params)
+
+    def layout_validate(self, **params):
+        return self.advanced_cartography.layout_validate(**params)
+
+    def specialized_layer_properties(self, **params):
+        return self.specialized_data_tools.layer_properties(**params)
+
+    def specialized_layer_capabilities(self, **params):
+        return self.specialized_data_tools.capabilities(**params)
+
+    def specialized_raster_style(self, **params):
+        return self.specialized_data_tools.raster_style(**params)
+
+    def specialized_mesh(self, **params):
+        return self.specialized_data_tools.mesh(**params)
+
+    def specialized_point_cloud(self, **params):
+        return self.specialized_data_tools.point_cloud(**params)
+
+    def specialized_vector_tiles(self, **params):
+        return self.specialized_data_tools.vector_tiles(**params)
+
+    def specialized_tiled_scene(self, **params):
+        return self.specialized_data_tools.tiled_scene(**params)
+
+    def specialized_temporal(self, **params):
+        return self.specialized_data_tools.temporal(**params)
+
+    def specialized_elevation(self, **params):
+        return self.specialized_data_tools.elevation(**params)
+
+    def ecosystem_plugins(self, **params):
+        return self.ecosystem_tools.plugins(**params)
+
+    def ecosystem_settings(self, **params):
+        return self.ecosystem_tools.settings(**params)
+
+    def ecosystem_shortcuts(self, **params):
+        return self.ecosystem_tools.shortcuts(**params)
+
+    def ecosystem_gps(self, **params):
+        return self.ecosystem_tools.gps(**params)
+
+    def ecosystem_3d(self, **params):
+        return self.ecosystem_tools.views_3d(**params)
+
+    def ecosystem_server(self, **params):
+        return self.ecosystem_tools.server(**params)
+
+    def ecosystem_offline(self, **params):
+        return self.ecosystem_tools.offline(**params)
+
+    def authoring_forms(self, **params):
+        return self.authoring_tools.forms(**params)
+
+    def authoring_diagrams(self, **params):
+        return self.authoring_tools.diagrams(**params)
+
+    def authoring_annotations(self, **params):
+        return self.authoring_tools.annotations(**params)
+
+    def authoring_geometry_quality(self, **params):
+        return self.authoring_tools.geometry_quality(**params)
+
+    def authoring_vector_export(self, **params):
+        return self.authoring_tools.vector_export(**params)
+
+    def qa_compatibility(self, **params):
+        return self.qa_tools.compatibility(**params)
+
+    def qa_project_audit(self, **params):
+        return self.qa_tools.project_audit(**params)
+
+    def qa_benchmark(self, **params):
+        return self.qa_tools.benchmark(**params)
+
+    def qa_self_test(self):
+        return self.qa_tools.self_test()
 
     def resources_list(self):
         resources = [
