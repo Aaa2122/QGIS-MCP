@@ -32,6 +32,9 @@ from qgis.PyQt.QtWidgets import (
 )
 
 from .capabilities import CapabilityIndex, ObjectRegistry
+from .cartography import CartographyManager, LayoutManager, ProjectLayerManager
+from .connectors import FireMapManager
+from .data_sources import DataAcquisitionManager
 from .operations import OperationManager
 from .reliability import IdempotencyConflict, MutationGuard
 from .revisions import (
@@ -43,6 +46,7 @@ from .revisions import (
     layer_uri,
     operation_uri,
 )
+from .safety import CheckpointManager, ProjectVerifier
 from .serialize import (
     feature_summary,
     field_schema,
@@ -52,6 +56,7 @@ from .serialize import (
 )
 from .state import StateTracker
 from .store import ArtifactStore, EventLog, HandleStore
+from .workflows import WorkflowManager
 
 MAX_INLINE_RESULT_BYTES = 1024 * 1024
 MUTATION_METHODS = {
@@ -65,6 +70,16 @@ MUTATION_METHODS = {
     "ui.invoke",
     "batch.execute",
     "artifact.release",
+    "data.fetch",
+    "data.service",
+    "data.refresh",
+    "layer.manage",
+    "cartography.style",
+    "cartography.labels",
+    "layout.execute",
+    "checkpoint.execute",
+    "workflow.execute",
+    "connector.fire_map",
 }
 
 
@@ -84,6 +99,21 @@ class Dispatcher:
         self.artifacts = ArtifactStore()
         self.mutations = MutationGuard()
         self.state = StateTracker(iface, self.log)
+        self.data = DataAcquisitionManager(self.state, self.log)
+        self.layer_manager = ProjectLayerManager(iface, self.state)
+        self.cartography = CartographyManager(self.state)
+        self.layouts = LayoutManager(self.state, iface=iface)
+        self.checkpoints = CheckpointManager(self.state)
+        self.verifier = ProjectVerifier()
+        self.fire_maps = FireMapManager(
+            iface,
+            self.data,
+            self.layer_manager,
+            self.cartography,
+            self.layouts,
+            self.verifier,
+            self.state,
+        )
         self.objects = ObjectRegistry(iface)
         self.capabilities = CapabilityIndex(iface, self.objects)
         self.operations = OperationManager(self.log, self.state, self.artifacts)
@@ -115,13 +145,31 @@ class Dispatcher:
             "artifact.read": self.artifact_read,
             "artifact.list": self.artifact_list,
             "artifact.release": self.artifact_release,
+            "data.fetch": self.data_fetch,
+            "data.service": self.data_service,
+            "data.refresh": self.data_refresh,
+            "data.catalog": self.data_catalog,
+            "data.provenance": self.data_provenance,
+            "layer.manage": self.layer_manage,
+            "cartography.style": self.cartography_style,
+            "cartography.labels": self.cartography_labels,
+            "layout.execute": self.layout_execute,
+            "checkpoint.execute": self.checkpoint_execute,
+            "project.verify": self.project_verify,
+            "workflow.execute": self.workflow_execute,
+            "connector.fire_map": self.fire_map,
+            "connector.catalog": self.connector_catalog,
             "batch.execute": self.batch_execute,
             "resources.list": self.resources_list,
             "resources.read": self.resources_read,
         }
+        self.workflows = WorkflowManager(
+            self.dispatch, self.checkpoints, self.state, self.log
+        )
         QgsApplicationMessageLog.connect(self.log)
 
     def close(self):
+        self.workflows.close()
         self.state.close()
         QgsApplicationMessageLog.disconnect(self.log)
 
@@ -135,7 +183,17 @@ class Dispatcher:
         idempotency_key = params.pop("idempotency_key", None)
         if_revision = params.pop("if_revision", None)
         resource_preconditions = params.pop("if_resource_revisions", None)
+        dry_run = bool(params.pop("dry_run", False))
         if method in MUTATION_METHODS:
+            if dry_run:
+                self._check_preconditions(if_revision, resource_preconditions)
+                return {
+                    "dry_run": True,
+                    "method": method,
+                    "parameter_names": sorted(params),
+                    "preconditions_valid": True,
+                    "current_revision": self.state.revision,
+                }
             if idempotency_key:
                 try:
                     found, cached = self.mutations.lookup(
@@ -707,33 +765,147 @@ class Dispatcher:
     def artifact_release(self, artifact_id):
         return {"artifact_id": artifact_id, "released": self.artifacts.release(artifact_id)}
 
-    def batch_execute(self, calls, continue_on_error=False):
+    def data_fetch(
+        self,
+        url,
+        name=None,
+        authcfg=None,
+        cache_mode="reuse",
+        max_age_seconds=3600,
+        max_bytes=64 * 1024 * 1024,
+        expected_sha256=None,
+        add_to_project=True,
+        provider=None,
+        x_field=None,
+        y_field=None,
+        delimiter=",",
+        crs="EPSG:4326",
+    ):
+        return self.data.fetch(
+            url=url,
+            name=name,
+            authcfg=authcfg,
+            cache_mode=cache_mode,
+            max_age_seconds=max_age_seconds,
+            max_bytes=max_bytes,
+            expected_sha256=expected_sha256,
+            add_to_project=add_to_project,
+            provider=provider,
+            x_field=x_field,
+            y_field=y_field,
+            delimiter=delimiter,
+            crs=crs,
+        )
+
+    def data_service(
+        self,
+        kind,
+        url,
+        name,
+        authcfg=None,
+        layer=None,
+        crs=None,
+        format="image/png",
+        zmin=0,
+        zmax=20,
+    ):
+        return self.data.add_service(
+            kind=kind,
+            url=url,
+            name=name,
+            authcfg=authcfg,
+            layer=layer,
+            crs=crs,
+            format=format,
+            zmin=zmin,
+            zmax=zmax,
+        )
+
+    def data_refresh(self, layer):
+        return self.data.refresh(self._layer(layer))
+
+    def data_catalog(self):
+        return self.data.catalog()
+
+    def data_provenance(self, layer):
+        target = self._layer(layer)
+        return {"layer_id": target.id(), "provenance": self.data.provenance(target)}
+
+    def layer_manage(self, **params):
+        return self.layer_manager.execute(**params)
+
+    def cartography_style(self, layer, **params):
+        return self.cartography.style(self._layer(layer), **params)
+
+    def cartography_labels(self, layer, **params):
+        return self.cartography.labels(self._layer(layer), **params)
+
+    def layout_execute(self, **params):
+        return self.layouts.execute(**params)
+
+    def checkpoint_execute(self, **params):
+        return self.checkpoints.execute(**params)
+
+    def project_verify(self, **params):
+        return self.verifier.verify(**params)
+
+    def workflow_execute(self, **params):
+        return self.workflows.execute(**params)
+
+    def fire_map(self, **params):
+        return self.fire_maps.build(**params)
+
+    def connector_catalog(self):
+        return {"connectors": [self.fire_maps.catalog()]}
+
+    def batch_execute(self, calls, continue_on_error=False, atomic=False):
+        if not isinstance(calls, list) or not 1 <= len(calls) <= 100:
+            raise ValueError("calls must contain between 1 and 100 items")
+        if any(not isinstance(call, dict) for call in calls):
+            raise ValueError("Every batch call must be an object")
+        checkpoint = None
+        if atomic:
+            checkpoint = self.checkpoints.create("Atomic batch", internal=True)
         results = []
-        for index, call in enumerate(calls[:100]):
-            method = call.get("method")
-            if method == "batch.execute":
-                raise ValueError("Nested batches are not supported")
-            try:
-                results.append(
-                    {
-                        "index": index,
-                        "result": self.dispatch(method, call.get("params") or {}),
-                    }
-                )
-            except DispatchError as exc:
-                results.append(
-                    {
-                        "index": index,
-                        "error": {
-                            "code": exc.code,
-                            "message": exc.message,
-                            "data": exc.data,
-                        },
-                    }
-                )
-                if not continue_on_error:
-                    break
-        return {"results": results, "completed": len(results), "requested": len(calls)}
+        rolled_back = False
+        try:
+            for index, call in enumerate(calls[:100]):
+                method = call.get("method")
+                if method == "batch.execute":
+                    raise ValueError("Nested batches are not supported")
+                try:
+                    results.append(
+                        {
+                            "index": index,
+                            "result": self.dispatch(method, call.get("params") or {}),
+                        }
+                    )
+                except DispatchError as exc:
+                    results.append(
+                        {
+                            "index": index,
+                            "error": {
+                                "code": exc.code,
+                                "message": exc.message,
+                                "data": exc.data,
+                            },
+                        }
+                    )
+                    if atomic:
+                        self.checkpoints.restore(checkpoint["checkpoint_id"])
+                        rolled_back = True
+                    if atomic or not continue_on_error:
+                        break
+        finally:
+            if checkpoint:
+                self.checkpoints.delete(checkpoint["checkpoint_id"])
+        return {
+            "results": results,
+            "completed": len(results),
+            "requested": len(calls),
+            "atomic": bool(atomic),
+            "rolled_back": rolled_back,
+        }
 
     def resources_list(self):
         resources = [
