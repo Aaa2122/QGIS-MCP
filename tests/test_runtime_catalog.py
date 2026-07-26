@@ -44,6 +44,16 @@ VECTOR_RASTER_TOOLS = {
     "qgis_raster_inspect": "raster.inspect",
 }
 
+PROCESSING_DATABASE_TOOLS = {
+    "qgis_processing_providers": "processing.provider",
+    "qgis_processing_batch": "processing.batch",
+    "qgis_processing_history": "processing.history",
+    "qgis_processing_assets": "processing.assets",
+    "qgis_processing_context": "processing.context",
+    "qgis_database": "database.control",
+    "qgis_connection_manage": "connection.manage",
+}
+
 
 def test_runtime_tool_families_are_public_and_routed():
     by_name = {tool["name"]: tool for tool in TOOLS}
@@ -73,4 +83,13 @@ def test_vector_raster_tool_families_are_public_and_routed():
         name: TOOL_METHODS[name] for name in VECTOR_RASTER_TOOLS
     } == VECTOR_RASTER_TOOLS
     for name in VECTOR_RASTER_TOOLS:
+        assert by_name[name]["inputSchema"]["additionalProperties"] is False
+
+
+def test_processing_database_tool_families_are_public_and_routed():
+    by_name = {tool["name"]: tool for tool in TOOLS}
+    assert {
+        name: TOOL_METHODS[name] for name in PROCESSING_DATABASE_TOOLS
+    } == PROCESSING_DATABASE_TOOLS
+    for name in PROCESSING_DATABASE_TOOLS:
         assert by_name[name]["inputSchema"]["additionalProperties"] is False

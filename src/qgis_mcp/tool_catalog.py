@@ -1154,6 +1154,93 @@ TOOLS.extend(
     ]
 )
 
+TOOLS.extend(
+    [
+        {
+            "name": "qgis_processing_providers",
+            "description": "List or refresh installed Processing providers, algorithms, and supported output extensions.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["list", "refresh"], "default": "list"},
+                    "provider": {"type": "string"},
+                }
+            ),
+        },
+        {
+            "name": "qgis_processing_batch",
+            "description": "Start up to 500 asynchronous runs of one Processing algorithm with independent parameter rows.",
+            "inputSchema": _object(
+                {
+                    "algorithm": {"type": "string"},
+                    "rows": {"type": "array", "minItems": 1, "maxItems": 500, "items": {"type": "object"}},
+                    "retain_outputs": {"type": "boolean", "default": True},
+                    "add_to_project": {"type": "boolean", "default": False},
+                    "stop_on_error": {"type": "boolean", "default": False},
+                },
+                ["algorithm", "rows"],
+            ),
+        },
+        {
+            "name": "qgis_processing_history",
+            "description": "List managed Processing operations or replay a previous operation with the same parameters.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["list", "replay"], "default": "list"},
+                    "operation_id": {"type": "string"},
+                }
+            ),
+        },
+        {
+            "name": "qgis_processing_assets",
+            "description": "List installed Processing algorithms, graphical models, or scripts with bounded search.",
+            "inputSchema": _object(
+                {
+                    "kind": {"type": "string", "enum": ["models", "scripts", "algorithms"], "default": "models"},
+                    "query": {"type": "string", "default": ""},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 100},
+                }
+            ),
+        },
+        {
+            "name": "qgis_processing_context",
+            "description": "Inspect Processing temporary output conventions, temporary folder, providers, and managed operation count.",
+            "inputSchema": _object({}),
+        },
+        {
+            "name": "qgis_database",
+            "description": "Inspect schemas, tables, and fields; run paged SQL; or explicitly mutate database schemas and tables through a stored QGIS connection.",
+            "inputSchema": _object(
+                {
+                    "provider": {"type": "string"},
+                    "connection": {"type": "string"},
+                    "action": {"type": "string", "enum": ["schemas", "tables", "fields", "query", "create_schema", "drop_schema", "rename_schema", "drop_table", "rename_table", "vacuum"], "default": "schemas"},
+                    "schema": {"type": "string", "default": ""},
+                    "table": {"type": "string"},
+                    "sql": {"type": "string"},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 10000, "default": 1000},
+                    "allow_mutation": {"type": "boolean", "default": False},
+                    "new_name": {"type": "string"},
+                },
+                ["provider", "connection"],
+            ),
+        },
+        {
+            "name": "qgis_connection_manage",
+            "description": "Create, test, or delete a stored provider connection; connection URIs are accepted as input but never returned.",
+            "inputSchema": _object(
+                {
+                    "provider": {"type": "string"},
+                    "action": {"type": "string", "enum": ["create", "test", "delete"]},
+                    "name": {"type": "string"},
+                    "uri": {"type": "string"},
+                    "configuration": {"type": "object"},
+                },
+                ["provider", "action"],
+            ),
+        },
+    ]
+)
+
 _MUTATION_TOOLS = {
     "qgis_project_action",
     "qgis_selection_set",
@@ -1195,6 +1282,11 @@ _MUTATION_TOOLS = {
     "qgis_relations",
     "qgis_snapping",
     "qgis_vector_select",
+    "qgis_processing_providers",
+    "qgis_processing_batch",
+    "qgis_processing_history",
+    "qgis_database",
+    "qgis_connection_manage",
 }
 for _tool in TOOLS:
     if _tool["name"] in _MUTATION_TOOLS:
@@ -1294,4 +1386,11 @@ TOOL_METHODS = {
     "qgis_snapping": "project.snapping",
     "qgis_vector_select": "selection.advanced",
     "qgis_raster_inspect": "raster.inspect",
+    "qgis_processing_providers": "processing.provider",
+    "qgis_processing_batch": "processing.batch",
+    "qgis_processing_history": "processing.history",
+    "qgis_processing_assets": "processing.assets",
+    "qgis_processing_context": "processing.context",
+    "qgis_database": "database.control",
+    "qgis_connection_manage": "connection.manage",
 }
