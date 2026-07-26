@@ -1624,6 +1624,104 @@ TOOLS.extend(
     ]
 )
 
+TOOLS.extend(
+    [
+        {
+            "name": "qgis_forms",
+            "description": "Inspect or configure vector attribute-form layout, custom UI files, suppression, and per-field read-only, label, and reuse behavior.",
+            "inputSchema": _object(
+                {
+                    "layer": {"type": "string"},
+                    "action": {"type": "string", "enum": ["inspect", "set_layout", "configure_field", "set_suppression"], "default": "inspect"},
+                    "layout": {"type": "string", "enum": ["auto", "drag_and_drop", "ui_file"]},
+                    "ui_file": {"type": "string"},
+                    "field": {"type": ["string", "integer"]},
+                    "read_only": {"type": "boolean"},
+                    "label_on_top": {"type": "boolean"},
+                    "reuse_last_value": {"type": "boolean"},
+                    "suppress": {"type": "string", "enum": ["default", "on", "off"]},
+                },
+                ["layer"],
+            ),
+        },
+        {
+            "name": "qgis_diagrams",
+            "description": "Inspect, disable, or configure pie, histogram, stacked-bar, and text diagrams over vector features.",
+            "inputSchema": _object(
+                {
+                    "layer": {"type": "string"},
+                    "action": {"type": "string", "enum": ["inspect", "set", "disable"], "default": "inspect"},
+                    "diagram_type": {"type": "string", "enum": ["pie", "histogram", "stacked_bar", "text"], "default": "pie"},
+                    "fields": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+                    "colors": {"type": "array", "items": {"type": "string"}},
+                    "labels": {"type": "array", "items": {"type": "string"}},
+                    "width": {"type": "number", "exclusiveMinimum": 0, "default": 15},
+                    "height": {"type": "number", "exclusiveMinimum": 0, "default": 15},
+                    "opacity": {"type": "number", "minimum": 0, "maximum": 1, "default": 1},
+                    "pen_color": {"type": "string", "default": "#404040"},
+                    "pen_width": {"type": "number", "minimum": 0, "default": 0.3},
+                    "placement": {"type": "string", "enum": ["around_point", "over_point", "line", "curved", "horizontal", "free"], "default": "around_point"},
+                    "priority": {"type": "integer", "minimum": 0, "maximum": 10, "default": 5},
+                    "obstacle": {"type": "boolean", "default": False},
+                },
+                ["layer"],
+            ),
+        },
+        {
+            "name": "qgis_annotations",
+            "description": "Create annotation layers and list, add, remove, or clear marker and point-text annotations.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["list", "create_layer", "add_marker", "add_text", "remove", "clear"], "default": "list"},
+                    "layer": {"type": "string"},
+                    "name": {"type": "string"},
+                    "item_id": {"type": "string"},
+                    "point": {"type": "array", "minItems": 2, "maxItems": 3, "items": {"type": "number"}},
+                    "text": {"type": "string"},
+                    "color": {"type": "string", "default": "#e53935"},
+                    "size": {"type": "number", "exclusiveMinimum": 0, "default": 4},
+                    "font_size": {"type": "number", "exclusiveMinimum": 0, "default": 10},
+                }
+            ),
+        },
+        {
+            "name": "qgis_geometry_quality",
+            "description": "Detect empty, duplicate, and invalid vector geometries or make invalid geometries valid in one undoable edit command.",
+            "inputSchema": _object(
+                {
+                    "layer": {"type": "string"},
+                    "action": {"type": "string", "enum": ["validate", "repair"], "default": "validate"},
+                    "expression": {"type": "string"},
+                    "selected_only": {"type": "boolean", "default": False},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 100000, "default": 10000},
+                },
+                ["layer"],
+            ),
+        },
+        {
+            "name": "qgis_vector_export",
+            "description": "Export a vector layer or selection to GeoPackage, GeoJSON, Shapefile, CSV, KML, GML, DXF, FlatGeobuf, or Parquet with optional reprojection.",
+            "inputSchema": _object(
+                {
+                    "layer": {"type": "string"},
+                    "path": {"type": "string"},
+                    "format": {"type": "string", "enum": ["gpkg", "geojson", "shapefile", "csv", "kml", "gml", "dxf", "flatgeobuf", "parquet"], "default": "gpkg"},
+                    "layer_name": {"type": "string"},
+                    "encoding": {"type": "string", "default": "UTF-8"},
+                    "selected_only": {"type": "boolean", "default": False},
+                    "fields": {"type": "array", "items": {"type": ["string", "integer"]}},
+                    "destination_crs": {"type": "string"},
+                    "overwrite": {"type": "boolean", "default": False},
+                    "create_parent": {"type": "boolean", "default": False},
+                    "include_z": {"type": "boolean", "default": False},
+                    "save_metadata": {"type": "boolean", "default": True},
+                },
+                ["layer", "path"],
+            ),
+        },
+    ]
+)
+
 _MUTATION_TOOLS = {
     "qgis_project_action",
     "qgis_selection_set",
@@ -1691,6 +1789,11 @@ _MUTATION_TOOLS = {
     "qgis_3d_views",
     "qgis_server",
     "qgis_offline",
+    "qgis_forms",
+    "qgis_diagrams",
+    "qgis_annotations",
+    "qgis_geometry_quality",
+    "qgis_vector_export",
 }
 for _tool in TOOLS:
     if _tool["name"] in _MUTATION_TOOLS:
@@ -1820,4 +1923,9 @@ TOOL_METHODS = {
     "qgis_3d_views": "ecosystem.3d",
     "qgis_server": "ecosystem.server",
     "qgis_offline": "ecosystem.offline",
+    "qgis_forms": "authoring.forms",
+    "qgis_diagrams": "authoring.diagrams",
+    "qgis_annotations": "authoring.annotations",
+    "qgis_geometry_quality": "authoring.geometry_quality",
+    "qgis_vector_export": "authoring.vector_export",
 }

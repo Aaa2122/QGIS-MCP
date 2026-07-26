@@ -86,6 +86,14 @@ ECOSYSTEM_TOOLS = {
     "qgis_offline": "ecosystem.offline",
 }
 
+AUTHORING_TOOLS = {
+    "qgis_forms": "authoring.forms",
+    "qgis_diagrams": "authoring.diagrams",
+    "qgis_annotations": "authoring.annotations",
+    "qgis_geometry_quality": "authoring.geometry_quality",
+    "qgis_vector_export": "authoring.vector_export",
+}
+
 
 def test_runtime_tool_families_are_public_and_routed():
     by_name = {tool["name"]: tool for tool in TOOLS}
@@ -147,4 +155,11 @@ def test_ecosystem_tool_families_are_public_and_routed():
     by_name = {tool["name"]: tool for tool in TOOLS}
     assert {name: TOOL_METHODS[name] for name in ECOSYSTEM_TOOLS} == ECOSYSTEM_TOOLS
     for name in ECOSYSTEM_TOOLS:
+        assert by_name[name]["inputSchema"]["additionalProperties"] is False
+
+
+def test_authoring_tool_families_are_public_and_routed():
+    by_name = {tool["name"]: tool for tool in TOOLS}
+    assert {name: TOOL_METHODS[name] for name in AUTHORING_TOOLS} == AUTHORING_TOOLS
+    for name in AUTHORING_TOOLS:
         assert by_name[name]["inputSchema"]["additionalProperties"] is False

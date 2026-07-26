@@ -32,6 +32,7 @@ from qgis.PyQt.QtWidgets import (
 )
 
 from .advanced_cartography import AdvancedCartographyTools
+from .authoring_tools import AuthoringTools
 from .capabilities import CapabilityIndex, ObjectRegistry
 from .cartography import CartographyManager, LayoutManager, ProjectLayerManager
 from .connectors import FireMapManager
@@ -133,6 +134,11 @@ MUTATION_METHODS = {
     "ecosystem.3d",
     "ecosystem.server",
     "ecosystem.offline",
+    "authoring.forms",
+    "authoring.diagrams",
+    "authoring.annotations",
+    "authoring.geometry_quality",
+    "authoring.vector_export",
 }
 
 
@@ -276,6 +282,11 @@ class Dispatcher:
             "ecosystem.3d": self.ecosystem_3d,
             "ecosystem.server": self.ecosystem_server,
             "ecosystem.offline": self.ecosystem_offline,
+            "authoring.forms": self.authoring_forms,
+            "authoring.diagrams": self.authoring_diagrams,
+            "authoring.annotations": self.authoring_annotations,
+            "authoring.geometry_quality": self.authoring_geometry_quality,
+            "authoring.vector_export": self.authoring_vector_export,
             "resources.list": self.resources_list,
             "resources.read": self.resources_read,
         }
@@ -300,6 +311,7 @@ class Dispatcher:
         )
         self.specialized_data_tools = SpecializedDataTools(self.state, self._layer)
         self.ecosystem_tools = EcosystemTools(iface, self.state)
+        self.authoring_tools = AuthoringTools(self.state, self._layer)
         self.workflows = WorkflowManager(
             self.dispatch, self.checkpoints, self.state, self.log
         )
@@ -1232,6 +1244,21 @@ class Dispatcher:
 
     def ecosystem_offline(self, **params):
         return self.ecosystem_tools.offline(**params)
+
+    def authoring_forms(self, **params):
+        return self.authoring_tools.forms(**params)
+
+    def authoring_diagrams(self, **params):
+        return self.authoring_tools.diagrams(**params)
+
+    def authoring_annotations(self, **params):
+        return self.authoring_tools.annotations(**params)
+
+    def authoring_geometry_quality(self, **params):
+        return self.authoring_tools.geometry_quality(**params)
+
+    def authoring_vector_export(self, **params):
+        return self.authoring_tools.vector_export(**params)
 
     def resources_list(self):
         resources = [
