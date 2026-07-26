@@ -1366,6 +1366,157 @@ TOOLS.extend(
     ]
 )
 
+TOOLS.extend(
+    [
+        {
+            "name": "qgis_layer_properties",
+            "description": "Inspect or update common visual, scale-visibility, naming, reload, and auto-refresh properties on any QGIS map layer.",
+            "inputSchema": _object(
+                {
+                    "layer": {"type": "string"},
+                    "action": {"type": "string", "enum": ["inspect", "set", "reload"], "default": "inspect"},
+                    "name": {"type": "string"},
+                    "opacity": {"type": "number", "minimum": 0, "maximum": 1},
+                    "blend_mode": {"type": "integer"},
+                    "scale_based_visibility": {"type": "boolean"},
+                    "minimum_scale": {"type": "number", "minimum": 0},
+                    "maximum_scale": {"type": "number", "minimum": 0},
+                    "auto_refresh_interval": {"type": "integer", "minimum": 0},
+                },
+                ["layer"],
+            ),
+        },
+        {
+            "name": "qgis_layer_capabilities",
+            "description": "Discover callable layer and data-provider capabilities at runtime, including capabilities added by future QGIS versions and providers.",
+            "inputSchema": _object(
+                {
+                    "layer": {"type": "string"},
+                    "query": {"type": "string", "default": ""},
+                    "include_provider": {"type": "boolean", "default": True},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 300},
+                },
+                ["layer"],
+            ),
+        },
+        {
+            "name": "qgis_raster_style",
+            "description": "Inspect or configure raster opacity, single-band gray, multiband RGB, and explicit pseudocolor rendering.",
+            "inputSchema": _object(
+                {
+                    "layer": {"type": "string"},
+                    "action": {"type": "string", "enum": ["inspect", "set_opacity", "single_band_gray", "multiband_color", "pseudocolor"], "default": "inspect"},
+                    "band": {"type": "integer", "minimum": 1, "default": 1},
+                    "red_band": {"type": "integer", "minimum": 1, "default": 1},
+                    "green_band": {"type": "integer", "minimum": 1, "default": 2},
+                    "blue_band": {"type": "integer", "minimum": 1, "default": 3},
+                    "opacity": {"type": "number", "minimum": 0, "maximum": 1},
+                    "minimum": {"type": "number"},
+                    "maximum": {"type": "number"},
+                    "color_ramp": {
+                        "type": "array",
+                        "minItems": 2,
+                        "items": _object(
+                            {
+                                "value": {"type": "number"},
+                                "color": {"type": "string"},
+                                "label": {"type": "string"},
+                            },
+                            ["value", "color"],
+                        ),
+                    },
+                    "interpolation": {"type": "string", "enum": ["linear", "discrete", "exact"], "default": "linear"},
+                },
+                ["layer"],
+            ),
+        },
+        {
+            "name": "qgis_mesh",
+            "description": "Inspect mesh topology and datasets, reload a mesh, select active scalar/vector datasets, or update opacity.",
+            "inputSchema": _object(
+                {
+                    "layer": {"type": "string"},
+                    "action": {"type": "string", "enum": ["inspect", "reload", "set_active_dataset", "set_opacity"], "default": "inspect"},
+                    "dataset_group": {"type": "integer", "minimum": 0},
+                    "dataset_index": {"type": "integer", "minimum": 0, "default": 0},
+                    "active_scalar": {"type": "boolean"},
+                    "active_vector": {"type": "boolean"},
+                    "opacity": {"type": "number", "minimum": 0, "maximum": 1},
+                },
+                ["layer"],
+            ),
+        },
+        {
+            "name": "qgis_point_cloud",
+            "description": "Inspect point-cloud counts, attributes, statistics, and renderer; reload or update opacity and renderer screen-error budget.",
+            "inputSchema": _object(
+                {
+                    "layer": {"type": "string"},
+                    "action": {"type": "string", "enum": ["inspect", "reload", "set_opacity", "set_point_budget"], "default": "inspect"},
+                    "opacity": {"type": "number", "minimum": 0, "maximum": 1},
+                    "point_budget": {"type": "number", "minimum": 0},
+                },
+                ["layer"],
+            ),
+        },
+        {
+            "name": "qgis_vector_tiles",
+            "description": "Inspect, reload, restyle, or change opacity for vector-tile layers.",
+            "inputSchema": _object(
+                {
+                    "layer": {"type": "string"},
+                    "action": {"type": "string", "enum": ["inspect", "reload", "set_opacity", "load_style"], "default": "inspect"},
+                    "opacity": {"type": "number", "minimum": 0, "maximum": 1},
+                    "style_path": {"type": "string"},
+                },
+                ["layer"],
+            ),
+        },
+        {
+            "name": "qgis_tiled_scene",
+            "description": "Inspect, reload, restyle, or change opacity for tiled 3D scene layers such as 3D Tiles.",
+            "inputSchema": _object(
+                {
+                    "layer": {"type": "string"},
+                    "action": {"type": "string", "enum": ["inspect", "reload", "set_opacity", "load_style"], "default": "inspect"},
+                    "opacity": {"type": "number", "minimum": 0, "maximum": 1},
+                    "style_path": {"type": "string"},
+                },
+                ["layer"],
+            ),
+        },
+        {
+            "name": "qgis_temporal",
+            "description": "Inspect or control layer temporal activation and fixed ISO-8601 time ranges.",
+            "inputSchema": _object(
+                {
+                    "layer": {"type": "string"},
+                    "action": {"type": "string", "enum": ["inspect", "set_active", "set_fixed_range"], "default": "inspect"},
+                    "enabled": {"type": "boolean"},
+                    "start": {"type": "string", "format": "date-time"},
+                    "end": {"type": "string", "format": "date-time"},
+                },
+                ["layer"],
+            ),
+        },
+        {
+            "name": "qgis_elevation",
+            "description": "Inspect or update layer elevation enablement, Z scale, Z offset, and extrusion when supported by the layer type.",
+            "inputSchema": _object(
+                {
+                    "layer": {"type": "string"},
+                    "action": {"type": "string", "enum": ["inspect", "set"], "default": "inspect"},
+                    "enabled": {"type": "boolean"},
+                    "z_scale": {"type": "number"},
+                    "z_offset": {"type": "number"},
+                    "extrusion": {"type": "boolean"},
+                },
+                ["layer"],
+            ),
+        },
+    ]
+)
+
 _MUTATION_TOOLS = {
     "qgis_project_action",
     "qgis_selection_set",
@@ -1418,6 +1569,14 @@ _MUTATION_TOOLS = {
     "qgis_labeling",
     "qgis_layout_items",
     "qgis_atlas",
+    "qgis_layer_properties",
+    "qgis_raster_style",
+    "qgis_mesh",
+    "qgis_point_cloud",
+    "qgis_vector_tiles",
+    "qgis_tiled_scene",
+    "qgis_temporal",
+    "qgis_elevation",
 }
 for _tool in TOOLS:
     if _tool["name"] in _MUTATION_TOOLS:
@@ -1531,4 +1690,13 @@ TOOL_METHODS = {
     "qgis_layout_items": "layout.item",
     "qgis_atlas": "layout.atlas",
     "qgis_layout_validate": "layout.validate",
+    "qgis_layer_properties": "layer.properties",
+    "qgis_layer_capabilities": "layer.capabilities",
+    "qgis_raster_style": "raster.style",
+    "qgis_mesh": "mesh.control",
+    "qgis_point_cloud": "point_cloud.control",
+    "qgis_vector_tiles": "vector_tile.control",
+    "qgis_tiled_scene": "tiled_scene.control",
+    "qgis_temporal": "layer.temporal",
+    "qgis_elevation": "layer.elevation",
 }

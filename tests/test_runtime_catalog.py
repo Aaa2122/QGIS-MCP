@@ -64,6 +64,18 @@ CARTOGRAPHY_TOOLS = {
     "qgis_layout_validate": "layout.validate",
 }
 
+SPECIALIZED_DATA_TOOLS = {
+    "qgis_layer_properties": "layer.properties",
+    "qgis_layer_capabilities": "layer.capabilities",
+    "qgis_raster_style": "raster.style",
+    "qgis_mesh": "mesh.control",
+    "qgis_point_cloud": "point_cloud.control",
+    "qgis_vector_tiles": "vector_tile.control",
+    "qgis_tiled_scene": "tiled_scene.control",
+    "qgis_temporal": "layer.temporal",
+    "qgis_elevation": "layer.elevation",
+}
+
 
 def test_runtime_tool_families_are_public_and_routed():
     by_name = {tool["name"]: tool for tool in TOOLS}
@@ -109,4 +121,13 @@ def test_cartography_tool_families_are_public_and_routed():
     by_name = {tool["name"]: tool for tool in TOOLS}
     assert {name: TOOL_METHODS[name] for name in CARTOGRAPHY_TOOLS} == CARTOGRAPHY_TOOLS
     for name in CARTOGRAPHY_TOOLS:
+        assert by_name[name]["inputSchema"]["additionalProperties"] is False
+
+
+def test_specialized_data_tool_families_are_public_and_routed():
+    by_name = {tool["name"]: tool for tool in TOOLS}
+    assert {
+        name: TOOL_METHODS[name] for name in SPECIALIZED_DATA_TOOLS
+    } == SPECIALIZED_DATA_TOOLS
+    for name in SPECIALIZED_DATA_TOOLS:
         assert by_name[name]["inputSchema"]["additionalProperties"] is False
