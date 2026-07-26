@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import sys
 import tempfile
 import threading
@@ -11,12 +12,11 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 import qgis.utils
-import qgis_agent_mcp
-from qgis.core import QgsProcessing, QgsProject, QgsVectorLayer
+from qgis.core import QgsApplication, QgsProcessing, QgsProject, QgsVectorLayer
 from qgis.PyQt.QtCore import QCoreApplication, QEventLoop, QProcess, QProcessEnvironment
 from qgis_agent_mcp.autonomy import DataCache, NetworkPolicy
 from qgis_agent_mcp.dispatcher import DispatchError
-from qgis_agent_mcp.onboarding import LauncherSpec, health_check
+from qgis_agent_mcp.onboarding import RuntimeManager, health_check
 
 
 class QgisRuntimeTest(unittest.TestCase):
@@ -302,25 +302,28 @@ class QgisRuntimeTest(unittest.TestCase):
                 group.parent().removeChildNode(group)
 
     def test_09_onboarding_health_check_keeps_qgis_responsive(self):
-        server_root = str(Path(__file__).resolve().parents[2] / "src")
-        launch_code = (
-            "import runpy,sys; sys.path.insert(0, {!r}); "
-            "runpy.run_module('qgis_mcp', run_name='__main__')"
-        ).format(server_root)
-        spec = LauncherSpec(
-            command=os.environ.get("QGIS_MCP_TEST_PYTHON", sys.executable),
-            args=("-c", launch_code),
-            launcher_path="integration-test",
-            server_root=str(Path(qgis_agent_mcp.__file__).resolve().parent),
-        )
-        result = health_check(
-            spec,
-            event_pump=lambda: QCoreApplication.processEvents(
-                QEventLoop.ExcludeUserInputEvents, 25
-            ),
-        )
-        self.assertIn("revision", result)
-        self.assertEqual(result["layer_count"], len(QgsProject.instance().mapLayers()))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            plugin_dir = root / "qgis_agent_mcp"
+            shutil.copytree(
+                Path(__file__).resolve().parents[2] / "src" / "qgis_mcp",
+                plugin_dir / "_server" / "qgis_mcp",
+            )
+            spec = RuntimeManager(
+                plugin_dir=plugin_dir,
+                qgis_prefix=QgsApplication.prefixPath(),
+                home=root / "home",
+            ).ensure()
+            result = health_check(
+                spec,
+                event_pump=lambda: QCoreApplication.processEvents(
+                    QEventLoop.ExcludeUserInputEvents, 25
+                ),
+            )
+            self.assertIn("revision", result)
+            self.assertEqual(
+                result["layer_count"], len(QgsProject.instance().mapLayers())
+            )
 
 
 def _rpc(process, request, timeout_ms=15000):
