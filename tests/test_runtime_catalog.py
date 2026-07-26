@@ -54,6 +54,16 @@ PROCESSING_DATABASE_TOOLS = {
     "qgis_connection_manage": "connection.manage",
 }
 
+CARTOGRAPHY_TOOLS = {
+    "qgis_renderer": "cartography.renderer",
+    "qgis_symbol": "cartography.symbol",
+    "qgis_style_library": "style.library",
+    "qgis_labeling": "cartography.labeling",
+    "qgis_layout_items": "layout.item",
+    "qgis_atlas": "layout.atlas",
+    "qgis_layout_validate": "layout.validate",
+}
+
 
 def test_runtime_tool_families_are_public_and_routed():
     by_name = {tool["name"]: tool for tool in TOOLS}
@@ -92,4 +102,11 @@ def test_processing_database_tool_families_are_public_and_routed():
         name: TOOL_METHODS[name] for name in PROCESSING_DATABASE_TOOLS
     } == PROCESSING_DATABASE_TOOLS
     for name in PROCESSING_DATABASE_TOOLS:
+        assert by_name[name]["inputSchema"]["additionalProperties"] is False
+
+
+def test_cartography_tool_families_are_public_and_routed():
+    by_name = {tool["name"]: tool for tool in TOOLS}
+    assert {name: TOOL_METHODS[name] for name in CARTOGRAPHY_TOOLS} == CARTOGRAPHY_TOOLS
+    for name in CARTOGRAPHY_TOOLS:
         assert by_name[name]["inputSchema"]["additionalProperties"] is False

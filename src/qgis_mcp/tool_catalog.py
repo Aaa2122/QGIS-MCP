@@ -1241,6 +1241,131 @@ TOOLS.extend(
     ]
 )
 
+TOOLS.extend(
+    [
+        {
+            "name": "qgis_renderer",
+            "description": "Inspect vector rendering, create a rule-based renderer, or load and save QML styles.",
+            "inputSchema": _object(
+                {
+                    "layer": {"type": "string"},
+                    "action": {"type": "string", "enum": ["inspect", "rule_based", "save_qml", "load_qml"], "default": "inspect"},
+                    "rules": {"type": "array", "items": {"type": "object"}},
+                    "path": {"type": "string"},
+                },
+                ["layer"],
+            ),
+        },
+        {
+            "name": "qgis_symbol",
+            "description": "Inspect symbol-layer trees or update color, opacity, size, width, and angle across renderer symbols.",
+            "inputSchema": _object(
+                {
+                    "layer": {"type": "string"},
+                    "action": {"type": "string", "enum": ["inspect", "set"], "default": "inspect"},
+                    "color": {"type": "string"},
+                    "opacity": {"type": "number", "minimum": 0, "maximum": 1},
+                    "size": {"type": "number", "minimum": 0},
+                    "width": {"type": "number", "minimum": 0},
+                    "angle": {"type": "number"},
+                },
+                ["layer"],
+            ),
+        },
+        {
+            "name": "qgis_style_library",
+            "description": "List, inspect, save, remove, import, or export items in the active QGIS style library.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["list", "inspect_symbol", "save_layer_symbol", "remove_symbol", "export_xml", "import_xml"], "default": "list"},
+                    "kind": {"type": "string", "enum": ["symbols", "color_ramps", "text_formats", "label_settings"], "default": "symbols"},
+                    "query": {"type": "string", "default": ""},
+                    "name": {"type": "string"},
+                    "layer": {"type": "string"},
+                    "path": {"type": "string"},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 200},
+                }
+            ),
+        },
+        {
+            "name": "qgis_labeling",
+            "description": "Inspect, disable, or configure expression-aware vector labeling with text, buffer, placement, priority, and obstacle settings.",
+            "inputSchema": _object(
+                {
+                    "layer": {"type": "string"},
+                    "action": {"type": "string", "enum": ["inspect", "set", "disable"], "default": "inspect"},
+                    "enabled": {"type": "boolean", "default": True},
+                    "field": {"type": "string"},
+                    "expression": {"type": "string"},
+                    "font_family": {"type": "string"},
+                    "font_size": {"type": "number", "exclusiveMinimum": 0, "default": 10},
+                    "color": {"type": "string", "default": "#202020"},
+                    "buffer_size": {"type": "number", "minimum": 0, "default": 0},
+                    "buffer_color": {"type": "string", "default": "#ffffff"},
+                    "placement": {"type": "string", "enum": ["around_point", "over_point", "line", "curved", "horizontal", "free"]},
+                    "priority": {"type": "number", "minimum": 0, "maximum": 10, "default": 5},
+                    "obstacle": {"type": "boolean", "default": True},
+                },
+                ["layer"],
+            ),
+        },
+        {
+            "name": "qgis_layout_items",
+            "description": "List, add, update, or remove map, label, legend, scale bar, picture, and shape items in a print layout.",
+            "inputSchema": _object(
+                {
+                    "layout": {"type": "string"},
+                    "action": {"type": "string", "enum": ["list", "add", "update", "remove"], "default": "list"},
+                    "item_id": {"type": "string"},
+                    "item_type": {"type": "string", "enum": ["map", "label", "legend", "scalebar", "picture", "shape"]},
+                    "x": {"type": "number"},
+                    "y": {"type": "number"},
+                    "width": {"type": "number", "exclusiveMinimum": 0},
+                    "height": {"type": "number", "exclusiveMinimum": 0},
+                    "rotation": {"type": "number"},
+                    "visible": {"type": "boolean"},
+                    "locked": {"type": "boolean"},
+                    "frame": {"type": "boolean"},
+                    "background": {"type": "boolean"},
+                    "text": {"type": "string"},
+                    "extent": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number"}},
+                    "scale": {"type": "number", "exclusiveMinimum": 0},
+                    "layers": {"type": "array", "items": {"type": "string"}},
+                    "picture_path": {"type": "string"},
+                    "linked_map": {"type": "string"},
+                },
+                ["layout"],
+            ),
+        },
+        {
+            "name": "qgis_atlas",
+            "description": "Inspect, configure, or disable a print-layout atlas with coverage, filtering, sorting, page naming, and filenames.",
+            "inputSchema": _object(
+                {
+                    "layout": {"type": "string"},
+                    "action": {"type": "string", "enum": ["status", "configure", "disable"], "default": "status"},
+                    "coverage_layer": {"type": "string"},
+                    "enabled": {"type": "boolean"},
+                    "filter_expression": {"type": "string"},
+                    "sort_expression": {"type": "string"},
+                    "sort_ascending": {"type": "boolean", "default": True},
+                    "filename_expression": {"type": "string"},
+                    "page_name_expression": {"type": "string"},
+                    "hide_coverage": {"type": "boolean", "default": False},
+                },
+                ["layout"],
+            ),
+        },
+        {
+            "name": "qgis_layout_validate",
+            "description": "Validate layout item IDs, sizes, labels, linked pictures, and atlas coverage before export.",
+            "inputSchema": _object(
+                {"layout": {"type": "string"}}, ["layout"]
+            ),
+        },
+    ]
+)
+
 _MUTATION_TOOLS = {
     "qgis_project_action",
     "qgis_selection_set",
@@ -1287,6 +1412,12 @@ _MUTATION_TOOLS = {
     "qgis_processing_history",
     "qgis_database",
     "qgis_connection_manage",
+    "qgis_renderer",
+    "qgis_symbol",
+    "qgis_style_library",
+    "qgis_labeling",
+    "qgis_layout_items",
+    "qgis_atlas",
 }
 for _tool in TOOLS:
     if _tool["name"] in _MUTATION_TOOLS:
@@ -1393,4 +1524,11 @@ TOOL_METHODS = {
     "qgis_processing_context": "processing.context",
     "qgis_database": "database.control",
     "qgis_connection_manage": "connection.manage",
+    "qgis_renderer": "cartography.renderer",
+    "qgis_symbol": "cartography.symbol",
+    "qgis_style_library": "style.library",
+    "qgis_labeling": "cartography.labeling",
+    "qgis_layout_items": "layout.item",
+    "qgis_atlas": "layout.atlas",
+    "qgis_layout_validate": "layout.validate",
 }
