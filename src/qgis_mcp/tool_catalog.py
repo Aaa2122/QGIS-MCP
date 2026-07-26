@@ -988,6 +988,172 @@ TOOLS.extend(
     ]
 )
 
+TOOLS.extend(
+    [
+        {
+            "name": "qgis_vector_schema",
+            "description": "Inspect or edit vector fields, aliases, defaults, constraints, and editor widget setups.",
+            "inputSchema": _object(
+                {
+                    "layer": {"type": "string"},
+                    "action": {"type": "string", "enum": ["inspect", "add", "delete", "rename", "configure"], "default": "inspect"},
+                    "field": {"type": ["string", "integer"]},
+                    "name": {"type": "string"},
+                    "field_type": {"type": "string", "enum": ["string", "integer", "integer64", "double", "boolean", "date", "datetime", "time"], "default": "string"},
+                    "length": {"type": "integer", "minimum": 0, "default": 0},
+                    "precision": {"type": "integer", "minimum": 0, "default": 0},
+                    "alias": {"type": "string"},
+                    "default_expression": {"type": "string"},
+                    "apply_default_on_update": {"type": "boolean", "default": False},
+                    "constraint": {"type": "string", "enum": ["not_null", "unique", "expression"]},
+                    "constraint_expression": {"type": "string"},
+                    "constraint_description": {"type": "string"},
+                    "constraint_strength": {"type": "string", "enum": ["hard", "soft"], "default": "hard"},
+                    "widget_type": {"type": "string"},
+                    "widget_config": {"type": "object"},
+                },
+                ["layer"],
+            ),
+        },
+        {
+            "name": "qgis_vector_statistics",
+            "description": "Inspect vector schema or calculate bounded unique values, value counts, and numeric statistics.",
+            "inputSchema": _object(
+                {
+                    "layer": {"type": "string"},
+                    "action": {"type": "string", "enum": ["summary", "unique", "value_counts", "numeric"], "default": "summary"},
+                    "field": {"type": ["string", "integer"]},
+                    "expression": {"type": "string"},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 10000, "default": 1000},
+                },
+                ["layer"],
+            ),
+        },
+        {
+            "name": "qgis_geometry_edit",
+            "description": "Set, translate, rotate, simplify, or make valid feature geometries inside an undoable edit command.",
+            "inputSchema": _object(
+                {
+                    "layer": {"type": "string"},
+                    "feature_ids": {"type": "array", "minItems": 1, "maxItems": 10000, "items": {"type": "integer"}},
+                    "action": {"type": "string", "enum": ["set", "translate", "rotate", "simplify", "make_valid"]},
+                    "geometry_wkt": {"type": "string"},
+                    "dx": {"type": "number", "default": 0},
+                    "dy": {"type": "number", "default": 0},
+                    "angle": {"type": "number", "default": 0},
+                    "center": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "number"}},
+                    "tolerance": {"type": "number", "minimum": 0, "default": 0},
+                },
+                ["layer", "feature_ids", "action"],
+            ),
+        },
+        {
+            "name": "qgis_vector_indexes",
+            "description": "Inspect spatial index availability or create provider-backed spatial and attribute indexes.",
+            "inputSchema": _object(
+                {
+                    "layer": {"type": "string"},
+                    "action": {"type": "string", "enum": ["inspect", "create_spatial", "create_attribute"], "default": "inspect"},
+                    "field": {"type": ["string", "integer"]},
+                },
+                ["layer"],
+            ),
+        },
+        {
+            "name": "qgis_vector_joins",
+            "description": "List, add, or remove attribute joins between vector layers.",
+            "inputSchema": _object(
+                {
+                    "layer": {"type": "string"},
+                    "action": {"type": "string", "enum": ["list", "add", "remove"], "default": "list"},
+                    "join_layer": {"type": "string"},
+                    "target_field": {"type": "string"},
+                    "join_field": {"type": "string"},
+                    "prefix": {"type": "string"},
+                    "memory_cache": {"type": "boolean", "default": True},
+                    "editable": {"type": "boolean", "default": False},
+                    "upsert": {"type": "boolean", "default": False},
+                },
+                ["layer"],
+            ),
+        },
+        {
+            "name": "qgis_relations",
+            "description": "List, add, or remove project relations with explicit parent/child field pairs.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["list", "add", "remove"], "default": "list"},
+                    "relation_id": {"type": "string"},
+                    "name": {"type": "string"},
+                    "referenced_layer": {"type": "string"},
+                    "referencing_layer": {"type": "string"},
+                    "field_pairs": {
+                        "oneOf": [
+                            {"type": "object", "additionalProperties": {"type": "string"}},
+                            {
+                                "type": "array",
+                                "items": {
+                                    "type": "array",
+                                    "minItems": 2,
+                                    "maxItems": 2,
+                                    "items": {"type": "string"},
+                                },
+                            },
+                        ]
+                    },
+                }
+            ),
+        },
+        {
+            "name": "qgis_snapping",
+            "description": "Read or configure project snapping mode, target types, tolerance, units, intersections, and self-snapping.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["get", "set"], "default": "get"},
+                    "enabled": {"type": "boolean"},
+                    "mode": {"type": "string", "enum": ["active_layer", "all_layers", "advanced"]},
+                    "types": {"type": "array", "items": {"type": "string", "enum": ["vertex", "segment", "area", "centroid", "middle", "endpoint"]}},
+                    "tolerance": {"type": "number", "minimum": 0},
+                    "units": {"type": "string", "enum": ["pixels", "project", "layer"]},
+                    "intersection": {"type": "boolean"},
+                    "self_snapping": {"type": "boolean"},
+                }
+            ),
+        },
+        {
+            "name": "qgis_vector_select",
+            "description": "Select vector features using all, invert, clear, expression, IDs, or a CRS-aware rectangle.",
+            "inputSchema": _object(
+                {
+                    "layer": {"type": "string"},
+                    "action": {"type": "string", "enum": ["all", "invert", "clear", "expression", "ids", "rect"]},
+                    "expression": {"type": "string"},
+                    "feature_ids": {"type": "array", "items": {"type": "integer"}},
+                    "extent": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number"}},
+                    "crs": {"type": ["string", "integer"]},
+                },
+                ["layer", "action"],
+            ),
+        },
+        {
+            "name": "qgis_raster_inspect",
+            "description": "Inspect raster dimensions and bands, sample a pixel, or calculate bounded statistics and histograms.",
+            "inputSchema": _object(
+                {
+                    "layer": {"type": "string"},
+                    "action": {"type": "string", "enum": ["inspect", "sample", "statistics", "histogram"], "default": "inspect"},
+                    "band": {"type": "integer", "minimum": 1, "default": 1},
+                    "point": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "number"}},
+                    "crs": {"type": ["string", "integer"]},
+                    "sample_size": {"type": "integer", "minimum": 0, "default": 0},
+                    "bins": {"type": "integer", "minimum": 2, "maximum": 65536, "default": 256},
+                },
+                ["layer"],
+            ),
+        },
+    ]
+)
+
 _MUTATION_TOOLS = {
     "qgis_project_action",
     "qgis_selection_set",
@@ -1022,6 +1188,13 @@ _MUTATION_TOOLS = {
     "qgis_map_themes",
     "qgis_crs",
     "qgis_metadata",
+    "qgis_vector_schema",
+    "qgis_geometry_edit",
+    "qgis_vector_indexes",
+    "qgis_vector_joins",
+    "qgis_relations",
+    "qgis_snapping",
+    "qgis_vector_select",
 }
 for _tool in TOOLS:
     if _tool["name"] in _MUTATION_TOOLS:
@@ -1112,4 +1285,13 @@ TOOL_METHODS = {
     "qgis_expression": "expression.control",
     "qgis_metadata": "metadata.manage",
     "qgis_connections": "connection.inspect",
+    "qgis_vector_schema": "vector.schema",
+    "qgis_vector_statistics": "vector.statistics",
+    "qgis_geometry_edit": "vector.geometry",
+    "qgis_vector_indexes": "vector.index",
+    "qgis_vector_joins": "vector.join",
+    "qgis_relations": "project.relation",
+    "qgis_snapping": "project.snapping",
+    "qgis_vector_select": "selection.advanced",
+    "qgis_raster_inspect": "raster.inspect",
 }

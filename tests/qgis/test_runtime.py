@@ -507,6 +507,107 @@ class QgisRuntimeTest(unittest.TestCase):
             QgsProject.instance().setTitle(original_title)
             QgsProject.instance().removeMapLayer(layer.id())
 
+    def test_12_vector_schema_geometry_joins_relations_and_snapping(self):
+        dispatcher = qgis.utils.plugins["qgis_agent_mcp"].dispatcher
+        parent = QgsVectorLayer(
+            "Point?crs=EPSG:4326&field=code:string", "parent-tools", "memory"
+        )
+        child = QgsVectorLayer(
+            "Point?crs=EPSG:4326&field=parent_code:string", "child-tools", "memory"
+        )
+        QgsProject.instance().addMapLayers([parent, child])
+        relation_id = "mcp-vector-tools-relation"
+        try:
+            schema = dispatcher.dispatch(
+                "vector.schema",
+                {
+                    "layer": parent.id(),
+                    "action": "add",
+                    "name": "score",
+                    "field_type": "double",
+                    "alias": "Score",
+                    "default_expression": "1.5",
+                },
+            )
+            self.assertIn("score", {field["name"] for field in schema["fields"]})
+            dispatcher.vector_edit(
+                parent.id(),
+                "add",
+                features=[
+                    {
+                        "attributes": {"code": "A", "score": 5},
+                        "geometry_wkt": "POINT(1 1)",
+                    }
+                ],
+            )
+            dispatcher.vector_edit(parent.id(), "commit")
+            feature_id = next(parent.getFeatures()).id()
+            statistics = dispatcher.dispatch(
+                "vector.statistics",
+                {"layer": parent.id(), "action": "numeric", "field": "score"},
+            )
+            self.assertEqual(statistics["max"], 5)
+            dispatcher.dispatch(
+                "vector.geometry",
+                {
+                    "layer": parent.id(),
+                    "feature_ids": [feature_id],
+                    "action": "translate",
+                    "dx": 2,
+                    "dy": 3,
+                },
+            )
+            moved = parent.getFeature(feature_id).geometry().asPoint()
+            self.assertAlmostEqual(moved.x(), 3)
+            self.assertAlmostEqual(moved.y(), 4)
+            parent.commitChanges()
+
+            joined = dispatcher.dispatch(
+                "vector.join",
+                {
+                    "layer": child.id(),
+                    "action": "add",
+                    "join_layer": parent.id(),
+                    "target_field": "parent_code",
+                    "join_field": "code",
+                    "prefix": "parent_",
+                },
+            )
+            self.assertEqual(joined["joins"][0]["join_layer_id"], parent.id())
+            relations = dispatcher.dispatch(
+                "project.relation",
+                {
+                    "action": "add",
+                    "relation_id": relation_id,
+                    "name": "Parent child",
+                    "referenced_layer": parent.id(),
+                    "referencing_layer": child.id(),
+                    "field_pairs": {"parent_code": "code"},
+                },
+            )
+            self.assertIn(relation_id, {item["id"] for item in relations["relations"]})
+            snapping = dispatcher.dispatch(
+                "project.snapping",
+                {
+                    "action": "set",
+                    "enabled": True,
+                    "mode": "all_layers",
+                    "types": ["vertex", "segment"],
+                    "tolerance": 12,
+                    "units": "pixels",
+                },
+            )
+            self.assertTrue(snapping["enabled"])
+            selected = dispatcher.dispatch(
+                "selection.advanced", {"layer": parent.id(), "action": "all"}
+            )
+            self.assertEqual(selected["selected_count"], 1)
+        finally:
+            manager = QgsProject.instance().relationManager()
+            if relation_id in manager.relations():
+                manager.removeRelation(relation_id)
+            QgsProject.instance().removeMapLayers([parent.id(), child.id()])
+
 
 def _rpc(process, request, timeout_ms=15000):
     process.write((json.dumps(request, separators=(",", ":")) + "\n").encode("utf-8"))

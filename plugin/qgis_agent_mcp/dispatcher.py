@@ -58,6 +58,7 @@ from .serialize import (
 )
 from .state import StateTracker
 from .store import ArtifactStore, EventLog, HandleStore
+from .vector_raster_tools import VectorRasterTools
 from .workflows import WorkflowManager
 
 MAX_INLINE_RESULT_BYTES = 1024 * 1024
@@ -95,6 +96,13 @@ MUTATION_METHODS = {
     "map_theme.manage",
     "crs.control",
     "metadata.manage",
+    "vector.schema",
+    "vector.geometry",
+    "vector.index",
+    "vector.join",
+    "project.relation",
+    "project.snapping",
+    "selection.advanced",
 }
 
 
@@ -199,6 +207,15 @@ class Dispatcher:
             "expression.control": self.expression_control,
             "metadata.manage": self.metadata_manage,
             "connection.inspect": self.connection_inspect,
+            "vector.schema": self.vector_schema,
+            "vector.statistics": self.vector_statistics,
+            "vector.geometry": self.geometry_edit,
+            "vector.index": self.vector_indexes,
+            "vector.join": self.vector_joins,
+            "project.relation": self.project_relations,
+            "project.snapping": self.project_snapping,
+            "selection.advanced": self.advanced_selection,
+            "raster.inspect": self.raster_inspect,
             "resources.list": self.resources_list,
             "resources.read": self.resources_read,
         }
@@ -214,6 +231,7 @@ class Dispatcher:
             self.layouts,
         )
         self.project_tools = ProjectTools(iface, self.state, self._layer)
+        self.vector_raster_tools = VectorRasterTools(self.state, self._layer)
         self.workflows = WorkflowManager(
             self.dispatch, self.checkpoints, self.state, self.log
         )
@@ -1029,6 +1047,33 @@ class Dispatcher:
 
     def connection_inspect(self, **params):
         return self.project_tools.connections(**params)
+
+    def vector_schema(self, **params):
+        return self.vector_raster_tools.vector_schema(**params)
+
+    def vector_statistics(self, **params):
+        return self.vector_raster_tools.vector_statistics(**params)
+
+    def geometry_edit(self, **params):
+        return self.vector_raster_tools.geometry_edit(**params)
+
+    def vector_indexes(self, **params):
+        return self.vector_raster_tools.indexes(**params)
+
+    def vector_joins(self, **params):
+        return self.vector_raster_tools.joins(**params)
+
+    def project_relations(self, **params):
+        return self.vector_raster_tools.relations(**params)
+
+    def project_snapping(self, **params):
+        return self.vector_raster_tools.snapping(**params)
+
+    def advanced_selection(self, **params):
+        return self.vector_raster_tools.select(**params)
+
+    def raster_inspect(self, **params):
+        return self.vector_raster_tools.raster(**params)
 
     def resources_list(self):
         resources = [
