@@ -28,10 +28,15 @@ class CommandResult:
 
 
 class CommandRunner:
-    def run(self, command, input_text=None, timeout=30):
+    def run(self, command, input_text=None, timeout=30, event_pump=None):
+        command = [str(item) for item in command]
+        if event_pump is not None:
+            return self._run_with_event_pump(
+                command, input_text, timeout, event_pump
+            )
         try:
             completed = subprocess.run(
-                [str(item) for item in command],
+                command,
                 input=input_text,
                 text=True,
                 capture_output=True,
@@ -48,6 +53,44 @@ class CommandRunner:
         return CommandResult(
             completed.returncode, completed.stdout or "", completed.stderr or ""
         )
+
+    @staticmethod
+    def _run_with_event_pump(command, input_text, timeout, event_pump):
+        try:
+            process = subprocess.Popen(
+                command,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                creationflags=(
+                    subprocess.CREATE_NO_WINDOW
+                    if os.name == "nt" and hasattr(subprocess, "CREATE_NO_WINDOW")
+                    else 0
+                ),
+            )
+        except OSError as exc:
+            return CommandResult(-1, "", str(exc))
+        deadline = time.monotonic() + float(timeout)
+        first_attempt = True
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                process.kill()
+                stdout, stderr = process.communicate()
+                message = "Command timed out after {} seconds".format(timeout)
+                return CommandResult(-1, stdout or "", (stderr or "") + message)
+            try:
+                stdout, stderr = process.communicate(
+                    input=input_text if first_attempt else None,
+                    timeout=min(0.05, remaining),
+                )
+                return CommandResult(
+                    process.returncode, stdout or "", stderr or ""
+                )
+            except subprocess.TimeoutExpired:
+                first_attempt = False
+                event_pump()
 
 
 @dataclass(frozen=True)
@@ -303,7 +346,7 @@ def universal_config(spec):
     )
 
 
-def health_check(spec, timeout=15):
+def health_check(spec, timeout=15, event_pump=None):
     messages = [
         {
             "jsonrpc": "2.0",
@@ -312,7 +355,7 @@ def health_check(spec, timeout=15):
             "params": {
                 "protocolVersion": "2025-06-18",
                 "capabilities": {},
-                "clientInfo": {"name": "qgis-onboarding", "version": "0.4.0"},
+                "clientInfo": {"name": "qgis-onboarding", "version": "0.4.1"},
             },
         },
         {
@@ -332,7 +375,10 @@ def health_check(spec, timeout=15):
     ]
     payload = "".join(json.dumps(item, separators=(",", ":")) + "\n" for item in messages)
     result = CommandRunner().run(
-        spec.command_line(), input_text=payload, timeout=timeout
+        spec.command_line(),
+        input_text=payload,
+        timeout=timeout,
+        event_pump=event_pump,
     )
     if result.returncode != 0:
         raise OnboardingError(

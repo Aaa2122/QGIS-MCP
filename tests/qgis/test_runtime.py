@@ -11,10 +11,12 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 import qgis.utils
+import qgis_agent_mcp
 from qgis.core import QgsProcessing, QgsProject, QgsVectorLayer
 from qgis.PyQt.QtCore import QCoreApplication, QEventLoop, QProcess, QProcessEnvironment
 from qgis_agent_mcp.autonomy import DataCache, NetworkPolicy
 from qgis_agent_mcp.dispatcher import DispatchError
+from qgis_agent_mcp.onboarding import LauncherSpec, health_check
 
 
 class QgisRuntimeTest(unittest.TestCase):
@@ -298,6 +300,27 @@ class QgisRuntimeTest(unittest.TestCase):
             group = QgsProject.instance().layerTreeRoot().findGroup("durable-test-group")
             if group:
                 group.parent().removeChildNode(group)
+
+    def test_09_onboarding_health_check_keeps_qgis_responsive(self):
+        server_root = str(Path(__file__).resolve().parents[2] / "src")
+        launch_code = (
+            "import runpy,sys; sys.path.insert(0, {!r}); "
+            "runpy.run_module('qgis_mcp', run_name='__main__')"
+        ).format(server_root)
+        spec = LauncherSpec(
+            command=os.environ.get("QGIS_MCP_TEST_PYTHON", sys.executable),
+            args=("-c", launch_code),
+            launcher_path="integration-test",
+            server_root=str(Path(qgis_agent_mcp.__file__).resolve().parent),
+        )
+        result = health_check(
+            spec,
+            event_pump=lambda: QCoreApplication.processEvents(
+                QEventLoop.ExcludeUserInputEvents, 25
+            ),
+        )
+        self.assertIn("revision", result)
+        self.assertEqual(result["layer_count"], len(QgsProject.instance().mapLayers()))
 
 
 def _rpc(process, request, timeout_ms=15000):
