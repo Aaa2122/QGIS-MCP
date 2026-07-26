@@ -110,11 +110,38 @@ class FakeRunner:
 
     def run(self, command, input_text=None, timeout=30):
         self.commands.append(list(command))
+        if "-c" in command:
+            return CommandResult(0, "3.12", "")
         if command[-1] == "--version":
             return CommandResult(0, "2.1.0", "")
         if "get" in command:
             return CommandResult(1, "", "not found")
         return CommandResult(0, "ok", "")
+
+
+def test_runtime_manager_prefers_standalone_qgis_python(monkeypatch, tmp_path):
+    qgis_root = tmp_path / "QGIS"
+    qgis_prefix = qgis_root / "apps" / "qgis-ltr"
+    qgis_prefix.mkdir(parents=True)
+    standalone = qgis_root / "apps" / "Python312" / "python.exe"
+    standalone.parent.mkdir(parents=True)
+    standalone.write_bytes(b"placeholder")
+    broken_path_python = qgis_root / "bin" / "python3.exe"
+    broken_path_python.parent.mkdir(parents=True)
+    broken_path_python.write_bytes(b"placeholder")
+    monkeypatch.setattr("qgis_agent_mcp.onboarding.sys.executable", "qgis-ltr-bin.exe")
+    monkeypatch.setattr(
+        "qgis_agent_mcp.onboarding.shutil.which",
+        lambda name: str(broken_path_python) if name == "python3" else None,
+    )
+    runner = FakeRunner()
+    manager = RuntimeManager(
+        plugin_dir=tmp_path / "plugin",
+        qgis_prefix=qgis_prefix,
+        runner=runner,
+    )
+    assert manager._find_python() == standalone.resolve()
+    assert runner.commands[0][1] == "-I"
 
 
 def test_claude_connector_uses_user_scoped_stdio_configuration(tmp_path):

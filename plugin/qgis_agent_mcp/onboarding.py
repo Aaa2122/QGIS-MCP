@@ -179,16 +179,16 @@ class RuntimeManager:
         executable = Path(sys.executable)
         if executable.stem.casefold().startswith("python"):
             candidates.append(executable)
-        for name in ("python3", "python"):
-            found = shutil.which(name)
-            if found:
-                candidates.append(Path(found))
         if self.qgis_prefix:
             roots = [self.qgis_prefix]
             roots.extend(list(self.qgis_prefix.parents)[:3])
             for root in roots:
                 candidates.extend(root.glob("apps/Python*/python.exe"))
                 candidates.extend(root.glob("bin/python3"))
+        for name in ("python3", "python"):
+            found = shutil.which(name)
+            if found:
+                candidates.append(Path(found))
         seen = set()
         for candidate in candidates:
             key = str(candidate).casefold()
@@ -198,6 +198,7 @@ class RuntimeManager:
             probe = self.runner.run(
                 [
                     str(candidate),
+                    "-I",
                     "-c",
                     "import sys; print('%s.%s' % sys.version_info[:2])",
                 ],
@@ -355,7 +356,7 @@ def health_check(spec, timeout=15, event_pump=None):
             "params": {
                 "protocolVersion": "2025-06-18",
                 "capabilities": {},
-                "clientInfo": {"name": "qgis-onboarding", "version": "0.4.1"},
+                "clientInfo": {"name": "qgis-onboarding", "version": "0.4.2"},
             },
         },
         {
