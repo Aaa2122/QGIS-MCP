@@ -11,7 +11,7 @@ from typing import Any, BinaryIO
 from . import __version__
 from .bridge import BridgeClient
 from .errors import INTERNAL_ERROR, INVALID_PARAMS, METHOD_NOT_FOUND, RpcError
-from .tool_catalog import TOOL_METHODS, TOOLS
+from .tool_registry import DISCOVERY_TOOL_NAMES, ToolRegistry
 
 LOGGER = logging.getLogger(__name__)
 SUPPORTED_PROTOCOLS = ("2025-06-18", "2025-03-26", "2024-11-05")
@@ -20,8 +20,9 @@ SUPPORTED_PROTOCOLS = ("2025-06-18", "2025-03-26", "2024-11-05")
 class McpServer:
     """Small MCP stdio server with no dependency on a particular MCP SDK."""
 
-    def __init__(self, bridge: BridgeClient | Any) -> None:
+    def __init__(self, bridge: BridgeClient | Any, *, tool_mode: str | None = None) -> None:
         self.bridge = bridge
+        self.tools = ToolRegistry(tool_mode)
         self.initialized = False
         self.client_info: dict[str, Any] = {}
         self.protocol_version = SUPPORTED_PROTOCOLS[0]
@@ -66,7 +67,7 @@ class McpServer:
         if method == "ping":
             return {}
         if method == "tools/list":
-            return {"tools": TOOLS}
+            return {"tools": self.tools.visible_tools()}
         if method == "tools/call":
             return await self._tool_call(params)
         if method == "resources/list":
@@ -88,14 +89,16 @@ class McpServer:
         return {
             "protocolVersion": self.protocol_version,
             "capabilities": {
-                "tools": {"listChanged": False},
+                "tools": {"listChanged": True},
                 "resources": {"subscribe": True, "listChanged": True},
                 "logging": {},
             },
             "serverInfo": {"name": "qgis-agent-mcp", "version": __version__},
             "instructions": (
-                "Operate on the live QGIS session. Start with qgis_session_snapshot, "
-                "prefer structured tools, discover capabilities before invoking them, "
+                "Operate on the live QGIS session. Start with qgis_session_snapshot. Use "
+                "qgis_tools to discover specialist tools and qgis_tool_call to invoke a "
+                "hidden specialist without loading the full catalog. Prefer structured tools, "
+                "discover capabilities before invoking them, "
                 "and use qgis_python_exec only as an explicit escape hatch. Large data "
                 "stays in QGIS and is returned through summaries, pages, or handles."
             ),
@@ -103,18 +106,41 @@ class McpServer:
 
     async def _tool_call(self, params: dict[str, Any]) -> dict[str, Any]:
         name = params.get("name")
-        if name not in TOOL_METHODS:
+        if name not in DISCOVERY_TOOL_NAMES and not self.tools.has_tool(str(name)):
             raise RpcError(INVALID_PARAMS, f"Unknown tool: {name}")
         arguments = params.get("arguments") or {}
         if not isinstance(arguments, dict):
             raise RpcError(INVALID_PARAMS, "Tool arguments must be an object")
+        if name == "qgis_tools":
+            before = tuple(tool["name"] for tool in self.tools.visible_tools())
+            try:
+                result = self.tools.command(arguments)
+            except (TypeError, ValueError) as exc:
+                raise RpcError(INVALID_PARAMS, str(exc)) from exc
+            after = tuple(tool["name"] for tool in self.tools.visible_tools())
+            if before != after and self._notification_sink is not None:
+                await self._notification_sink(
+                    {"jsonrpc": "2.0", "method": "notifications/tools/list_changed"}
+                )
+            return self._structured_result(result)
+        if name == "qgis_tool_call":
+            nested_name = arguments.get("tool")
+            nested_arguments = arguments.get("arguments") or {}
+            if not isinstance(nested_name, str) or not self.tools.has_tool(nested_name):
+                raise RpcError(INVALID_PARAMS, f"Unknown specialist tool: {nested_name}")
+            if not isinstance(nested_arguments, dict):
+                raise RpcError(INVALID_PARAMS, "arguments must be an object")
+            return await self._execute_tool(nested_name, nested_arguments)
+        return await self._execute_tool(str(name), arguments)
+
+    async def _execute_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         timeout = 120.0
         if name == "qgis_python_exec":
             timeout = min(305.0, float(arguments.get("timeout_ms", 30000)) / 1000 + 5)
         elif name == "qgis_batch":
             timeout = 305.0
         result = await self.bridge.request(
-            TOOL_METHODS[name], arguments, timeout=timeout
+            self.tools.method_for(name), arguments, timeout=timeout
         )
         if name == "qgis_screenshot" and isinstance(result, dict) and result.get("data"):
             try:
@@ -140,6 +166,10 @@ class McpServer:
                     key: value for key, value in result.items() if key != "data"
                 },
             }
+        return self._structured_result(result)
+
+    @staticmethod
+    def _structured_result(result: Any) -> dict[str, Any]:
         serialized = json.dumps(result, ensure_ascii=False, indent=2, default=str)
         return {
             "content": [{"type": "text", "text": serialized}],
