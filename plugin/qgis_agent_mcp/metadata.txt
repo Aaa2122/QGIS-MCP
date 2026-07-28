@@ -1,12 +1,20 @@
 [general]
 name=QGIS Agent MCP
-description=High-capability local MCP bridge for the active QGIS session
+description=Connect AI agents to QGIS through a secure, one-click local MCP bridge
 version=0.4.2
 qgisMinimumVersion=3.28
-author=QGIS MCP contributors
-email=
-about=Exposes structured project context, runtime capability discovery, Processing, PyQGIS, plugins, Qt UI, screenshots, logs, and managed operations to a local MCP server.
-category=Plugins
+author=Auguste Sagaert
+email=auguste.sagaert@gmail.com
+about=Connect Codex, Claude Code and other MCP clients to a live QGIS Desktop session.
+    Access 100+ specialist tools while an adaptive catalog keeps the default context small.
+    Run safe, resumable workflows with visual map review through an authenticated local bridge.
 experimental=True
 deprecated=False
 hasProcessingProvider=False
+server=False
+tags=MCP,AI agents,automation,PyQGIS,Processing,cartography
+homepage=https://github.com/Aaa2122/QGIS-MCP
+repository=https://github.com/Aaa2122/QGIS-MCP
+tracker=https://github.com/Aaa2122/QGIS-MCP/issues
+icon=icon.png
+changelog=0.4.2 - Adaptive specialist tool catalog, restart recovery and visual review.
