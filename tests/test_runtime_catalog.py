@@ -14,6 +14,7 @@ RUNTIME_TOOLS = {
     "qgis_diagnostics": "runtime.diagnostics",
     "qgis_permissions": "runtime.permissions",
     "qgis_auth": "runtime.auth",
+    "qgis_visual_review": "visual.review",
 }
 
 PROJECT_TOOLS = {

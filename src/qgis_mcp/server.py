@@ -142,7 +142,9 @@ class McpServer:
         result = await self.bridge.request(
             self.tools.method_for(name), arguments, timeout=timeout
         )
-        if name == "qgis_screenshot" and isinstance(result, dict) and result.get("data"):
+        if name in {"qgis_screenshot", "qgis_visual_review"} and isinstance(
+            result, dict
+        ) and result.get("data"):
             try:
                 base64.b64decode(result["data"], validate=True)
             except Exception as exc:

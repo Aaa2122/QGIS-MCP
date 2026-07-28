@@ -63,6 +63,7 @@ CORE_TOOL_NAMES = {
     "qgis_operation",
     "qgis_screenshot",
     "qgis_workflow",
+    "qgis_visual_review",
     "qgis_project_verify",
     "qgis_diagnostics",
 }
@@ -128,6 +129,7 @@ _METHOD_TOOLSETS = {
     "vector_tile": "advanced_data",
     "tiled_scene": "advanced_data",
     "workflow": "autonomy",
+    "visual": "autonomy",
     "checkpoint": "autonomy",
     "connector": "autonomy",
     "runtime": "runtime",
