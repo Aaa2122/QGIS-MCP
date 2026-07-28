@@ -31,6 +31,14 @@ class FakeBridge:
                 "width": 1,
                 "height": 1,
             }
+        if method == "visual.review":
+            return {
+                "data": base64.b64encode(b"review").decode(),
+                "mime_type": "image/png",
+                "width": 2,
+                "height": 1,
+                "automated_review": {"passed": True, "findings": []},
+            }
         return {"method": method, "params": params}
 
 
@@ -179,6 +187,22 @@ async def test_screenshot_returns_image_content():
         }
     )
     assert response["result"]["content"][0]["type"] == "image"
+    assert "data" not in response["result"]["structuredContent"]
+
+
+@pytest.mark.asyncio
+async def test_visual_review_returns_image_and_structural_checks():
+    server = McpServer(FakeBridge())
+    response = await server.dispatch(
+        {
+            "jsonrpc": "2.0",
+            "id": 12,
+            "method": "tools/call",
+            "params": {"name": "qgis_visual_review", "arguments": {"action": "capture"}},
+        }
+    )
+    assert response["result"]["content"][0]["type"] == "image"
+    assert response["result"]["structuredContent"]["automated_review"]["passed"]
     assert "data" not in response["result"]["structuredContent"]
 
 
