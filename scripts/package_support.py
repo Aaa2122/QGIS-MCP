@@ -14,6 +14,10 @@ def copy_packaged_plugin(root: Path, target: Path) -> None:
     if not (server_source / "__main__.py").is_file():
         raise RuntimeError("MCP server package not found: {}".format(server_source))
     shutil.copytree(source, target, ignore=IGNORED)
+    license_path = root / "LICENSE"
+    if not license_path.is_file():
+        raise RuntimeError("Plugin license not found: {}".format(license_path))
+    shutil.copy2(license_path, target / "LICENSE")
     shutil.copytree(
         server_source,
         target / "_server" / "qgis_mcp",
