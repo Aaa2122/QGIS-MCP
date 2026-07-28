@@ -12,17 +12,28 @@ from qgis.PyQt.QtCore import QObject, QTimer
 
 
 class WorkflowManager(QObject):
-    def __init__(self, dispatch, checkpoints, state, log, root=None):
+    def __init__(
+        self,
+        dispatch,
+        checkpoints,
+        state,
+        log,
+        root=None,
+        mutation_methods=None,
+    ):
         super().__init__()
         self.dispatch = dispatch
         self.checkpoints = checkpoints
         self.state = state
         self.log = log
+        self.mutation_methods = set(mutation_methods or ())
         self.root = Path(root or Path.home() / ".qgis-mcp" / "workflows")
         self.timer = QTimer(self)
         self.timer.setInterval(15000)
         self.timer.timeout.connect(self.run_due)
         self.timer.start()
+        if self._mark_interrupted():
+            QTimer.singleShot(0, self.resume_interrupted)
 
     def close(self):
         self.timer.stop()
@@ -37,9 +48,17 @@ class WorkflowManager(QObject):
         enabled=False,
         atomic=True,
         resume=False,
+        resume_on_restart=True,
     ):
         if action == "create":
-            return self.create(name, steps, interval_seconds, enabled, atomic)
+            return self.create(
+                name,
+                steps,
+                interval_seconds,
+                enabled,
+                atomic,
+                resume_on_restart,
+            )
         if action == "list":
             return {"workflows": [self._public(item) for item in self._all()]}
         if action == "inspect":
@@ -56,7 +75,15 @@ class WorkflowManager(QObject):
             return {"workflow_id": workflow_id, "deleted": self.delete(workflow_id)}
         raise ValueError("Unknown workflow action")
 
-    def create(self, name, steps, interval_seconds=None, enabled=False, atomic=True):
+    def create(
+        self,
+        name,
+        steps,
+        interval_seconds=None,
+        enabled=False,
+        atomic=True,
+        resume_on_restart=True,
+    ):
         if not name:
             raise ValueError("name is required")
         if not isinstance(steps, list) or not steps or len(steps) > 100:
@@ -86,6 +113,7 @@ class WorkflowManager(QObject):
             "interval_seconds": interval,
             "next_run_at": now if enabled else None,
             "atomic": bool(atomic),
+            "resume_on_restart": bool(resume_on_restart),
             "steps": normalized,
             "status": "ready",
             "current_step": 0,
@@ -93,6 +121,8 @@ class WorkflowManager(QObject):
             "last_started_at": None,
             "last_finished_at": None,
             "last_results": [],
+            "active_run_id": None,
+            "last_run_id": None,
         }
         self._save(workflow)
         self.state.touch("workflow.created", {"workflow_id": workflow_id})
@@ -105,7 +135,12 @@ class WorkflowManager(QObject):
         start_index = int(workflow.get("current_step", 0)) if resume else 0
         if start_index >= len(workflow["steps"]):
             start_index = 0
+        if resume and workflow.get("active_run_id"):
+            run_id = workflow["active_run_id"]
+        else:
+            run_id = uuid.uuid4().hex
         workflow["status"] = "running"
+        workflow["active_run_id"] = run_id
         workflow["current_step"] = start_index
         workflow["last_started_at"] = time.time()
         workflow["last_results"] = workflow.get("last_results", [])[:start_index] if resume else []
@@ -120,26 +155,46 @@ class WorkflowManager(QObject):
             for index in range(start_index, len(workflow["steps"])):
                 step = workflow["steps"][index]
                 entry = {"index": index, "method": step["method"], "started_at": time.time()}
+                workflow["current_step"] = index
+                self._save(workflow)
+                step_failed = False
                 try:
-                    result = self.dispatch(step["method"], step["params"])
+                    params = dict(step["params"])
+                    if step["method"] in self.mutation_methods:
+                        params.setdefault(
+                            "idempotency_key",
+                            "workflow:{}:{}:{}".format(workflow_id, run_id, index),
+                        )
+                    result = self.dispatch(step["method"], params)
                     entry["result"] = self._bounded(result)
+                    workflow["current_step"] = index + 1
                 except Exception as exc:
                     failed = True
+                    step_failed = True
                     entry["error"] = {
                         "code": getattr(exc, "code", -32010),
                         "message": getattr(exc, "message", str(exc)),
                         "data": self._bounded(getattr(exc, "data", None)),
                     }
+                    workflow["current_step"] = (
+                        index + 1 if step["continue_on_error"] else index
+                    )
                 entry["finished_at"] = time.time()
                 workflow["last_results"].append(entry)
-                workflow["current_step"] = index + 1
                 workflow["updated_at"] = time.time()
                 self._save(workflow)
-                if failed and (workflow.get("atomic") or not step["continue_on_error"]):
+                if step_failed and (
+                    workflow.get("atomic") or not step["continue_on_error"]
+                ):
                     break
             if failed and checkpoint:
                 self.checkpoints.restore(checkpoint["checkpoint_id"])
+                workflow["current_step"] = 0
+                workflow["active_run_id"] = None
             workflow["status"] = "failed" if failed else "completed"
+            if not failed:
+                workflow["last_run_id"] = run_id
+                workflow["active_run_id"] = None
             workflow["run_count"] = int(workflow.get("run_count", 0)) + 1
             workflow["last_finished_at"] = time.time()
             workflow["next_run_at"] = (
@@ -156,6 +211,33 @@ class WorkflowManager(QObject):
             {"workflow_id": workflow_id, "status": workflow["status"]},
         )
         return self._public(workflow, include_steps=True)
+
+    def resume_interrupted(self):
+        for workflow in self._all():
+            if workflow.get("status") != "interrupted" or not workflow.get(
+                "resume_on_restart", True
+            ):
+                continue
+            try:
+                self.run(workflow["workflow_id"], resume=True)
+            except Exception as exc:
+                self.log.add(
+                    "workflow.recovery_error",
+                    str(exc),
+                    "error",
+                    {"workflow_id": workflow["workflow_id"]},
+                )
+
+    def _mark_interrupted(self):
+        recoverable = False
+        for workflow in self._all():
+            if workflow.get("status") != "running":
+                continue
+            workflow["status"] = "interrupted"
+            workflow["interrupted_at"] = time.time()
+            self._save(workflow)
+            recoverable = recoverable or workflow.get("resume_on_restart", True)
+        return recoverable
 
     def run_due(self):
         now = time.time()
