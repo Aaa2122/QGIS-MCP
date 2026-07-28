@@ -285,6 +285,9 @@ class QgisRuntimeTest(unittest.TestCase):
                 "workflow.execute", {"action": "inspect", "workflow_id": workflow_id}
             )
             self.assertEqual(inspected["run_count"], 1)
+            self.assertTrue(inspected["resume_on_restart"])
+            self.assertIsNone(inspected["active_run_id"])
+            self.assertRegex(inspected["last_run_id"], r"^[0-9a-f]{32}$")
             self.assertIsNotNone(QgsProject.instance().layerTreeRoot().findGroup("durable-test-group"))
             catalog = dispatcher.dispatch("connector.catalog", {})
             self.assertEqual(catalog["connectors"][0]["provider"], "NASA LANCE FIRMS")

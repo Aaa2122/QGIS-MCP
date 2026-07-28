@@ -157,7 +157,10 @@ class Dispatcher:
         self.log = EventLog()
         self.handles = HandleStore()
         self.artifacts = ArtifactStore()
-        self.mutations = MutationGuard()
+        self.mutations = MutationGuard(
+            max_entries=128,
+            path=os.path.join(os.path.expanduser("~"), ".qgis-mcp", "idempotency.json"),
+        )
         self.state = StateTracker(iface, self.log)
         self.data = DataAcquisitionManager(self.state, self.log)
         self.layer_manager = ProjectLayerManager(iface, self.state)
@@ -319,7 +322,11 @@ class Dispatcher:
         self.authoring_tools = AuthoringTools(self.state, self._layer)
         self.qa_tools = QaTools(iface, self.state, self.verifier, lambda: self._methods)
         self.workflows = WorkflowManager(
-            self.dispatch, self.checkpoints, self.state, self.log
+            self.dispatch,
+            self.checkpoints,
+            self.state,
+            self.log,
+            mutation_methods=MUTATION_METHODS,
         )
         QgsApplicationMessageLog.connect(self.log)
 

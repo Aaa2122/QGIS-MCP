@@ -579,6 +579,11 @@ TOOLS: list[dict[str, Any]] = [
                 "enabled": {"type": "boolean", "default": False},
                 "atomic": {"type": "boolean", "default": True},
                 "resume": {"type": "boolean", "default": False},
+                "resume_on_restart": {
+                    "type": "boolean",
+                    "default": True,
+                    "description": "Automatically resume an interrupted run when QGIS starts again.",
+                },
             },
             ["action"],
         ),
