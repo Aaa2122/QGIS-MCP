@@ -169,6 +169,8 @@ def test_plugin_zip_contains_bundled_server_and_no_markdown(tmp_path):
     with zipfile.ZipFile(output) as archive:
         names = set(archive.namelist())
     assert "qgis_agent_mcp/metadata.txt" in names
+    assert "qgis_agent_mcp/icon.png" in names
+    assert "qgis_agent_mcp/LICENSE" in names
     assert "qgis_agent_mcp/_server/qgis_mcp/__main__.py" in names
     assert not any(name.casefold().endswith(".md") for name in names)
     assert not any("__pycache__" in name for name in names)

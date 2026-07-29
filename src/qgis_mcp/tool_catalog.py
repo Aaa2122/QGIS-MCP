@@ -579,8 +579,64 @@ TOOLS: list[dict[str, Any]] = [
                 "enabled": {"type": "boolean", "default": False},
                 "atomic": {"type": "boolean", "default": True},
                 "resume": {"type": "boolean", "default": False},
+                "resume_on_restart": {
+                    "type": "boolean",
+                    "default": True,
+                    "description": "Automatically resume an interrupted run when QGIS starts again.",
+                },
             },
             ["action"],
+        ),
+    },
+    {
+        "name": "qgis_visual_review",
+        "description": (
+            "Close the autonomous cartography loop: capture the current map as MCP image "
+            "content, combine it with structural QGIS checks, apply a bounded atomic set of "
+            "corrections, and record the model's visual verdict."
+        ),
+        "inputSchema": _object(
+            {
+                "action": {
+                    "type": "string",
+                    "enum": ["capture", "apply", "record"],
+                    "default": "capture",
+                },
+                "target": {"type": "string", "default": "canvas"},
+                "layout": {"type": "string"},
+                "page": {"type": "integer", "minimum": 0, "default": 0},
+                "max_width": {"type": "integer", "minimum": 320, "maximum": 4096, "default": 1600},
+                "wait_ms": {"type": "integer", "minimum": 0, "maximum": 5000, "default": 1500},
+                "geometry_sample": {"type": "integer", "minimum": 0, "maximum": 1000, "default": 100},
+                "require_layout": {"type": "boolean", "default": False},
+                "require_saved": {"type": "boolean", "default": False},
+                "findings": {
+                    "type": "array",
+                    "maxItems": 50,
+                    "items": _object(
+                        {
+                            "severity": {"type": "string", "enum": ["info", "warning", "error"]},
+                            "code": {"type": "string"},
+                            "message": {"type": "string"},
+                        },
+                        ["severity", "message"],
+                    ),
+                },
+                "passed": {"type": "boolean"},
+                "correction_calls": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 25,
+                    "items": _object(
+                        {
+                            "method": {"type": "string"},
+                            "params": {"type": "object"},
+                        },
+                        ["method"],
+                    ),
+                },
+                "atomic": {"type": "boolean", "default": True},
+            }
         ),
     },
     {
@@ -1785,6 +1841,7 @@ _MUTATION_TOOLS = {
     "qgis_layout",
     "qgis_checkpoint",
     "qgis_workflow",
+    "qgis_visual_review",
     "qgis_fire_map",
     "qgis_tasks",
     "qgis_render",
@@ -1901,6 +1958,7 @@ TOOL_METHODS = {
     "qgis_checkpoint": "checkpoint.execute",
     "qgis_project_verify": "project.verify",
     "qgis_workflow": "workflow.execute",
+    "qgis_visual_review": "visual.review",
     "qgis_connectors": "connector.catalog",
     "qgis_fire_map": "connector.fire_map",
     "qgis_runtime": "runtime.control",

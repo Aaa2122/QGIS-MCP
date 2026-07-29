@@ -34,3 +34,34 @@ def test_mutation_guard_replays_same_call_and_rejects_key_reuse():
     with pytest.raises(IdempotencyConflict):
         guard.lookup("request-1", "vector.edit", {"feature_ids": [2]})
 
+
+def test_mutation_guard_survives_process_restart(tmp_path):
+    path = tmp_path / "idempotency.json"
+    first = MutationGuard(path=path)
+    first.remember(
+        "workflow:one:run:0",
+        "layer.manage",
+        {"action": "create_group", "name": "fires"},
+        {"created": True},
+    )
+
+    restarted = MutationGuard(path=path)
+    found, result = restarted.lookup(
+        "workflow:one:run:0",
+        "layer.manage",
+        {"action": "create_group", "name": "fires"},
+    )
+    assert found is True
+    assert result == {"created": True}
+
+
+def test_mutation_guard_bounds_large_persisted_results(tmp_path):
+    path = tmp_path / "idempotency.json"
+    guard = MutationGuard(path=path, max_result_bytes=16)
+    guard.remember("large", "project.action", {"action": "save"}, {"data": "x" * 100})
+
+    restarted = MutationGuard(path=path, max_result_bytes=16)
+    found, result = restarted.lookup("large", "project.action", {"action": "save"})
+    assert found is True
+    assert result["idempotency_replayed"] is True
+    assert result["result_unavailable_after_restart"] is True

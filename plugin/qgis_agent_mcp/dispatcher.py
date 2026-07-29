@@ -15,11 +15,12 @@ from qgis.core import (
     QgsFeature,
     QgsFeatureRequest,
     QgsGeometry,
+    QgsLayoutExporter,
     QgsProject,
     QgsRasterLayer,
     QgsVectorLayer,
 )
-from qgis.PyQt.QtCore import QBuffer, QIODevice, Qt
+from qgis.PyQt.QtCore import QBuffer, QCoreApplication, QEventLoop, QIODevice, Qt
 from qgis.PyQt.QtWidgets import (
     QAbstractButton,
     QAction,
@@ -88,6 +89,7 @@ MUTATION_METHODS = {
     "layout.execute",
     "checkpoint.execute",
     "workflow.execute",
+    "visual.review",
     "connector.fire_map",
     "runtime.tasks",
     "runtime.render",
@@ -157,7 +159,13 @@ class Dispatcher:
         self.log = EventLog()
         self.handles = HandleStore()
         self.artifacts = ArtifactStore()
-        self.mutations = MutationGuard()
+        self.mutations = MutationGuard(
+            max_entries=128,
+            path=os.environ.get(
+                "QGIS_MCP_IDEMPOTENCY_FILE",
+                os.path.join(os.path.expanduser("~"), ".qgis-mcp", "idempotency.json"),
+            ),
+        )
         self.state = StateTracker(iface, self.log)
         self.data = DataAcquisitionManager(self.state, self.log)
         self.layer_manager = ProjectLayerManager(iface, self.state)
@@ -217,6 +225,7 @@ class Dispatcher:
             "checkpoint.execute": self.checkpoint_execute,
             "project.verify": self.project_verify,
             "workflow.execute": self.workflow_execute,
+            "visual.review": self.visual_review,
             "connector.fire_map": self.fire_map,
             "connector.catalog": self.connector_catalog,
             "batch.execute": self.batch_execute,
@@ -319,7 +328,11 @@ class Dispatcher:
         self.authoring_tools = AuthoringTools(self.state, self._layer)
         self.qa_tools = QaTools(iface, self.state, self.verifier, lambda: self._methods)
         self.workflows = WorkflowManager(
-            self.dispatch, self.checkpoints, self.state, self.log
+            self.dispatch,
+            self.checkpoints,
+            self.state,
+            self.log,
+            mutation_methods=MUTATION_METHODS,
         )
         QgsApplicationMessageLog.connect(self.log)
 
@@ -1006,6 +1019,186 @@ class Dispatcher:
 
     def workflow_execute(self, **params):
         return self.workflows.execute(**params)
+
+    def visual_review(
+        self,
+        action="capture",
+        target="canvas",
+        layout=None,
+        page=0,
+        max_width=1600,
+        wait_ms=1500,
+        geometry_sample=100,
+        require_layout=False,
+        require_saved=False,
+        findings=None,
+        passed=None,
+        correction_calls=None,
+        atomic=True,
+    ):
+        if action == "record":
+            normalized = self._visual_findings(findings)
+            if passed is None:
+                passed = not any(item["severity"] == "error" for item in normalized)
+            result = {
+                "passed": bool(passed),
+                "findings": normalized,
+                "revision": self.state.revision,
+                "recorded_at": time.time(),
+            }
+            self.state.touch("visual_review.recorded", result)
+            return result
+        corrections = None
+        if action == "apply":
+            if not isinstance(correction_calls, list) or not correction_calls:
+                raise ValueError("correction_calls are required for action=apply")
+            if len(correction_calls) > 25:
+                raise ValueError("At most 25 correction calls are allowed")
+            forbidden = {"batch.execute", "visual.review", "workflow.execute", "python.exec"}
+            requested_methods = {str(call.get("method")) for call in correction_calls}
+            if requested_methods & forbidden:
+                raise ValueError("Nested orchestration and Python corrections are not allowed")
+            preflight = self.runtime_tools.preflight(correction_calls)
+            if not preflight["valid"]:
+                raise ValueError("Visual correction preflight failed: {}".format(preflight["errors"]))
+            corrections = {
+                "preflight": preflight,
+                "batch": self.batch_execute(
+                    correction_calls,
+                    continue_on_error=False,
+                    atomic=bool(atomic),
+                ),
+                "input_findings": self._visual_findings(findings),
+            }
+            if corrections["batch"]["rolled_back"]:
+                raise RuntimeError("Visual corrections failed and were rolled back")
+        elif action != "capture":
+            raise ValueError("Unknown visual review action")
+
+        canvas = self.iface.mapCanvas()
+        canvas.refresh()
+        deadline = time.monotonic() + max(0, min(int(wait_ms), 5000)) / 1000.0
+        while canvas.isDrawing() and time.monotonic() < deadline:
+            QCoreApplication.processEvents(QEventLoop.ExcludeUserInputEvents, 25)
+            time.sleep(0.01)
+        capture = (
+            self._layout_screenshot(layout, page=page, max_width=max_width)
+            if layout
+            else self.ui_screenshot(target=target, max_width=max_width)
+        )
+        audit = self.qa_tools.project_audit(
+            geometry_sample=geometry_sample,
+            require_layout=require_layout,
+            require_saved=require_saved,
+            include_server=False,
+            include_metadata=True,
+        )
+        layout_check = self.advanced_cartography.layout_validate(layout) if layout else None
+        automated = list(audit["issues"])
+        if not canvas.layers():
+            automated.append(
+                {
+                    "severity": "error",
+                    "code": "canvas.no_layers",
+                    "message": "The map canvas has no visible layers.",
+                }
+            )
+        if not canvas.renderFlag():
+            automated.append(
+                {
+                    "severity": "error",
+                    "code": "canvas.render_disabled",
+                    "message": "Canvas rendering is disabled.",
+                }
+            )
+        if canvas.isDrawing():
+            automated.append(
+                {
+                    "severity": "warning",
+                    "code": "canvas.render_incomplete",
+                    "message": "The canvas was still drawing when the image was captured.",
+                }
+            )
+        if layout_check:
+            automated.extend(
+                {
+                    "severity": item["severity"],
+                    "code": "layout.{}".format(item["type"]),
+                    "message": json.dumps(item, ensure_ascii=False, default=str),
+                }
+                for item in layout_check["issues"]
+            )
+        capture.update(
+            {
+                "action": action,
+                "automated_review": {
+                    "passed": not any(item["severity"] == "error" for item in automated),
+                    "errors": sum(item["severity"] == "error" for item in automated),
+                    "warnings": sum(item["severity"] == "warning" for item in automated),
+                    "findings": automated,
+                },
+                "layout_review": layout_check,
+                "corrections": corrections,
+                "visual_checklist": [
+                    "Confirm visual hierarchy, contrast and color accessibility.",
+                    "Check label collisions, clipping and readability at the intended scale.",
+                    "Check legend, scale, title, sources, dates and attribution when applicable.",
+                    "Check geographic framing, empty space and whether important features are hidden.",
+                ],
+                "next_action": (
+                    "Inspect the image content. Record a passing verdict, or call action=apply "
+                    "with bounded correction_calls and review the returned image again."
+                ),
+            }
+        )
+        return capture
+
+    @staticmethod
+    def _visual_findings(findings):
+        if findings is None:
+            return []
+        if not isinstance(findings, list) or len(findings) > 50:
+            raise ValueError("findings must be an array of at most 50 items")
+        normalized = []
+        for item in findings:
+            if not isinstance(item, dict) or not item.get("message"):
+                raise ValueError("Every visual finding requires a message")
+            severity = str(item.get("severity", "warning"))
+            if severity not in {"info", "warning", "error"}:
+                raise ValueError("Visual finding severity must be info, warning, or error")
+            normalized.append(
+                {
+                    "severity": severity,
+                    "code": str(item.get("code", "visual.model_review")),
+                    "message": str(item["message"]),
+                }
+            )
+        return normalized
+
+    def _layout_screenshot(self, layout, page=0, max_width=1600):
+        target = QgsProject.instance().layoutManager().layoutByName(str(layout))
+        if target is None:
+            raise KeyError("Print layout not found")
+        image = QgsLayoutExporter(target).renderPageToImage(int(page))
+        if image.isNull():
+            raise RuntimeError("Could not render the requested layout page")
+        if image.width() > int(max_width):
+            image = image.scaledToWidth(int(max_width), Qt.SmoothTransformation)
+        buffer = QBuffer()
+        buffer.open(QIODevice.WriteOnly)
+        if not image.save(buffer, "PNG"):
+            raise RuntimeError("Could not encode the layout review image")
+        import base64
+
+        return {
+            "data": base64.b64encode(bytes(buffer.data())).decode("ascii"),
+            "mime_type": "image/png",
+            "width": image.width(),
+            "height": image.height(),
+            "target": "layout:{}".format(layout),
+            "page": int(page),
+            "revision": self.state.revision,
+        }
 
     def fire_map(self, **params):
         return self.fire_maps.build(**params)

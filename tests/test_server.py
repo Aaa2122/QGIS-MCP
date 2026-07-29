@@ -9,6 +9,7 @@ import pytest
 
 from qgis_mcp.server import McpServer, StdioTransport
 from qgis_mcp.tool_catalog import TOOL_METHODS, TOOLS
+from qgis_mcp.tool_registry import CORE_TOOL_NAMES, DISCOVERY_TOOL_NAMES, ToolRegistry
 
 
 class FakeBridge:
@@ -30,6 +31,14 @@ class FakeBridge:
                 "width": 1,
                 "height": 1,
             }
+        if method == "visual.review":
+            return {
+                "data": base64.b64encode(b"review").decode(),
+                "mime_type": "image/png",
+                "width": 2,
+                "height": 1,
+                "automated_review": {"passed": True, "findings": []},
+            }
         return {"method": method, "params": params}
 
 
@@ -48,13 +57,27 @@ async def test_initialize_and_catalog():
         }
     )
     assert response["result"]["protocolVersion"] == "2025-06-18"
-    assert response["result"]["capabilities"]["tools"] == {"listChanged": False}
+    assert response["result"]["capabilities"]["tools"] == {"listChanged": True}
     listed = await server.dispatch(
         {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}
     )
     names = [tool["name"] for tool in listed["result"]["tools"]]
-    assert len(names) == len(set(names)) == len(TOOLS)
-    assert set(names) == set(TOOL_METHODS)
+    assert len(names) == len(set(names))
+    assert set(names) == CORE_TOOL_NAMES | DISCOVERY_TOOL_NAMES
+    assert len(names) < len(TOOLS) / 4
+
+
+def test_full_catalog_mode_remains_available():
+    registry = ToolRegistry("full")
+    names = {tool["name"] for tool in registry.visible_tools()}
+    assert names == set(TOOL_METHODS) | DISCOVERY_TOOL_NAMES
+
+
+def test_adaptive_catalog_has_bounded_default_context_cost():
+    status = ToolRegistry("adaptive").status()
+    assert status["catalog_tools"] == len(TOOLS)
+    assert status["visible_catalog_bytes"] < 20_000
+    assert status["visible_catalog_bytes"] < status["catalog_bytes"] * 0.25
 
 
 @pytest.mark.asyncio
@@ -77,6 +100,82 @@ async def test_tool_call_forwards_to_bridge():
 
 
 @pytest.mark.asyncio
+async def test_specialist_tool_can_be_searched_and_called_without_being_visible():
+    bridge = FakeBridge()
+    server = McpServer(bridge)
+    listed = await server.dispatch(
+        {"jsonrpc": "2.0", "id": 7, "method": "tools/list", "params": {}}
+    )
+    assert "qgis_point_cloud" not in {
+        tool["name"] for tool in listed["result"]["tools"]
+    }
+    search = await server.dispatch(
+        {
+            "jsonrpc": "2.0",
+            "id": 8,
+            "method": "tools/call",
+            "params": {
+                "name": "qgis_tools",
+                "arguments": {"action": "search", "query": "nuage de points"},
+            },
+        }
+    )
+    matches = search["result"]["structuredContent"]["matches"]
+    assert matches[0]["name"] == "qgis_point_cloud"
+    called = await server.dispatch(
+        {
+            "jsonrpc": "2.0",
+            "id": 9,
+            "method": "tools/call",
+            "params": {
+                "name": "qgis_tool_call",
+                "arguments": {
+                    "tool": "qgis_point_cloud",
+                    "arguments": {"action": "inspect", "layer": "lidar"},
+                },
+            },
+        }
+    )
+    assert bridge.calls[-1] == (
+        "point_cloud.control",
+        {"action": "inspect", "layer": "lidar"},
+    )
+    assert called["result"]["structuredContent"]["method"] == "point_cloud.control"
+
+
+@pytest.mark.asyncio
+async def test_activating_toolset_emits_catalog_change_notification():
+    server = McpServer(FakeBridge())
+    notifications = []
+
+    async def sink(message):
+        notifications.append(message)
+
+    server.set_notification_sink(sink)
+    response = await server.dispatch(
+        {
+            "jsonrpc": "2.0",
+            "id": 10,
+            "method": "tools/call",
+            "params": {
+                "name": "qgis_tools",
+                "arguments": {"action": "activate", "toolsets": ["cartography"]},
+            },
+        }
+    )
+    assert "cartography" in response["result"]["structuredContent"]["active_toolsets"]
+    assert notifications == [
+        {"jsonrpc": "2.0", "method": "notifications/tools/list_changed"}
+    ]
+    listed = await server.dispatch(
+        {"jsonrpc": "2.0", "id": 11, "method": "tools/list", "params": {}}
+    )
+    assert "qgis_layout_items" in {
+        tool["name"] for tool in listed["result"]["tools"]
+    }
+
+
+@pytest.mark.asyncio
 async def test_screenshot_returns_image_content():
     server = McpServer(FakeBridge())
     response = await server.dispatch(
@@ -88,6 +187,22 @@ async def test_screenshot_returns_image_content():
         }
     )
     assert response["result"]["content"][0]["type"] == "image"
+    assert "data" not in response["result"]["structuredContent"]
+
+
+@pytest.mark.asyncio
+async def test_visual_review_returns_image_and_structural_checks():
+    server = McpServer(FakeBridge())
+    response = await server.dispatch(
+        {
+            "jsonrpc": "2.0",
+            "id": 12,
+            "method": "tools/call",
+            "params": {"name": "qgis_visual_review", "arguments": {"action": "capture"}},
+        }
+    )
+    assert response["result"]["content"][0]["type"] == "image"
+    assert response["result"]["structuredContent"]["automated_review"]["passed"]
     assert "data" not in response["result"]["structuredContent"]
 
 
