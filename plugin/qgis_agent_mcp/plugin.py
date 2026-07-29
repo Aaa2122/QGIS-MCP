@@ -25,10 +25,12 @@ class QgisAgentMcpPlugin:
             self.dispatcher = Dispatcher(self.iface)
             self.bridge = LocalBridge(self.dispatcher, self.iface.mainWindow())
             self.bridge.start()
+            plugin_icon = QIcon(str(Path(__file__).resolve().parent / "icon.png"))
             self.status_action = QAction("QGIS Agent MCP status", self.iface.mainWindow())
+            self.status_action.setIcon(plugin_icon)
             self.status_action.triggered.connect(self._show_status)
             self.connect_action = QAction(
-                QIcon.fromTheme("network-connect"),
+                plugin_icon,
                 "Connect an AI client",
                 self.iface.mainWindow(),
             )

@@ -8,3 +8,10 @@ build/
 benchmark-results/
 *.qgz~
 *.md
+!README.md
+.qgis-test-profiles/
+symbology-style.db
+assets/*
+!assets/social/
+assets/social/*
+!assets/social/github-social-preview-v2.png

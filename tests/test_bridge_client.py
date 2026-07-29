@@ -140,3 +140,107 @@ async def test_bridge_reloads_connection_and_retries_after_qgis_restart(monkeypa
         second.shutdown()
         first.server_close()
         second.server_close()
+
+
+@pytest.mark.asyncio
+async def test_bridge_waits_for_connection_file_and_reports_new_qgis_session(monkeypatch):
+    token_one = "c" * 64
+    token_two = "d" * 64
+    loads = 0
+    events = []
+
+    def healthy(reader, writer):
+        hello = json.loads(reader.readline())
+        _write(
+            writer,
+            {"jsonrpc": "2.0", "id": hello["id"], "result": {"authenticated": True}},
+        )
+        request = json.loads(reader.readline())
+        _write(
+            writer,
+            {
+                "jsonrpc": "2.0",
+                "id": request["id"],
+                "result": {"pid": 200, "ready": True},
+            },
+        )
+
+    second, second_port = _start_bridge(healthy)
+
+    def failing(reader, writer):
+        hello = json.loads(reader.readline())
+        _write(
+            writer,
+            {"jsonrpc": "2.0", "id": hello["id"], "result": {"authenticated": True}},
+        )
+        reader.readline()
+
+    first, first_port = _start_bridge(failing)
+
+    def connection_info():
+        nonlocal loads
+        loads += 1
+        if loads == 1:
+            return ConnectionInfo("127.0.0.1", first_port, token_one, pid=100)
+        if loads < 4:
+            raise RuntimeError("QGIS is restarting")
+        return ConnectionInfo("127.0.0.1", second_port, token_two, pid=200)
+
+    monkeypatch.setattr("qgis_mcp.bridge.load_connection_info", connection_info)
+    client = BridgeClient(
+        reconnect_timeout=2,
+        reconnect_initial_delay=0.01,
+        reconnect_max_delay=0.02,
+    )
+    client.add_event_handler(events.append)
+    try:
+        result = await client.request("session.snapshot", timeout=2)
+        await asyncio.sleep(0)
+        assert result == {"pid": 200, "ready": True}
+        assert loads >= 4
+        assert events == [
+            {
+                "type": "bridge.reconnected",
+                "previous_pid": 100,
+                "pid": 200,
+                "qgis_version": None,
+            }
+        ]
+    finally:
+        await client.close()
+        first.shutdown()
+        second.shutdown()
+        first.server_close()
+        second.server_close()
+
+
+@pytest.mark.asyncio
+async def test_non_idempotent_mutation_is_not_replayed_after_disconnect(monkeypatch):
+    token = "e" * 64
+    loads = 0
+
+    def failing(reader, writer):
+        hello = json.loads(reader.readline())
+        _write(
+            writer,
+            {"jsonrpc": "2.0", "id": hello["id"], "result": {"authenticated": True}},
+        )
+        reader.readline()
+
+    server, port = _start_bridge(failing)
+
+    def connection_info():
+        nonlocal loads
+        loads += 1
+        return ConnectionInfo("127.0.0.1", port, token)
+
+    monkeypatch.setattr("qgis_mcp.bridge.load_connection_info", connection_info)
+    client = BridgeClient(reconnect_timeout=0.2)
+    try:
+        with pytest.raises(RpcError):
+            await client.request("project.action", {"action": "save"})
+        assert loads == 1
+    finally:
+        await client.close()
+        server.shutdown()
+        server.server_close()
