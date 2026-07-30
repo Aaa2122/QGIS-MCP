@@ -34,6 +34,9 @@ jobs:
       - run: python -m compileall -q src plugin scripts tests benchmarks
       - run: pytest
       - run: python scripts/build_plugin.py
+      - name: Run QGIS publication security gate
+        if: matrix.python-version == '3.13'
+        run: python scripts/check_qgis_plugin_security.py
 
   qgis-ltr:
     name: Boot plugin and MCP smoke test on QGIS LTR 3.44.12
