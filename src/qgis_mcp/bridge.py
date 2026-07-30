@@ -84,7 +84,7 @@ class BridgeClient:
                 raise RpcError(BRIDGE_UNAVAILABLE, "QGIS bridge connection is unavailable")
             self._info = info
             try:
-                self._reader, self._writer = await asyncio.open_connection(
+                reader, writer = await asyncio.open_connection(
                     info.host, info.port, limit=MAX_BRIDGE_RESPONSE_BYTES
                 )
             except (OSError, asyncio.TimeoutError) as exc:
@@ -93,9 +93,10 @@ class BridgeClient:
                     "Cannot connect to the QGIS plugin bridge",
                     {"host": info.host, "port": info.port, "cause": str(exc)},
                 ) from exc
-            assert self._reader is not None and self._writer is not None
+            self._reader = reader
+            self._writer = writer
             self._reader_task = asyncio.create_task(
-                self._read_loop(self._reader, self._writer)
+                self._read_loop(reader, writer)
             )
             try:
                 hello = await self.request(

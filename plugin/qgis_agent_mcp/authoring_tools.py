@@ -336,14 +336,16 @@ class AuthoringTools:
             options.ct = QgsCoordinateTransform(
                 target.crs(), target_crs, QgsProject.instance()
             )
-        options.actionOnExistingFile = QgsVectorFileWriter.CreateOrOverwriteFile
+        options.actionOnExistingFile = (
+            QgsVectorFileWriter.ActionOnExistingFile.CreateOrOverwriteFile
+        )
         error, message, new_path, new_layer = QgsVectorFileWriter.writeAsVectorFormatV3(
             target,
             str(destination),
             QgsProject.instance().transformContext(),
             options,
         )
-        if error != QgsVectorFileWriter.NoError:
+        if error != QgsVectorFileWriter.WriterError.NoError:
             raise RuntimeError("Vector export failed: {}".format(message))
         self.state.touch(
             "authoring.vector_export",
@@ -406,7 +408,10 @@ class AuthoringTools:
                     "enabled": item.enabled,
                     "size": [item.size.width(), item.size.height()],
                     "opacity": item.opacity,
-                    "colors": [color.name(QColor.HexArgb) for color in item.categoryColors],
+                    "colors": [
+                        color.name(QColor.NameFormat.HexArgb)
+                        for color in item.categoryColors
+                    ],
                     "labels": list(item.categoryLabels),
                 }
                 for item in diagram_settings
@@ -478,12 +483,12 @@ def _diagram(value):
 
 def _diagram_placement(value):
     mapping = {
-        "around_point": QgsDiagramLayerSettings.AroundPoint,
-        "over_point": QgsDiagramLayerSettings.OverPoint,
-        "line": QgsDiagramLayerSettings.Line,
-        "curved": QgsDiagramLayerSettings.Curved,
-        "horizontal": QgsDiagramLayerSettings.Horizontal,
-        "free": QgsDiagramLayerSettings.Free,
+        "around_point": QgsDiagramLayerSettings.Placement.AroundPoint,
+        "over_point": QgsDiagramLayerSettings.Placement.OverPoint,
+        "line": QgsDiagramLayerSettings.Placement.Line,
+        "curved": QgsDiagramLayerSettings.Placement.Curved,
+        "horizontal": QgsDiagramLayerSettings.Placement.Horizontal,
+        "free": QgsDiagramLayerSettings.Placement.Free,
     }
     result = mapping.get(str(value).casefold())
     if result is None:

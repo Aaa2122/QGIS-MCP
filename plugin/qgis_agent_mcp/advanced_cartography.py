@@ -309,10 +309,22 @@ class AdvancedCartographyTools:
 
         if x is not None or y is not None:
             current = item.positionWithUnits()
-            item.attemptMove(QgsLayoutPoint(float(x if x is not None else current.x()), float(y if y is not None else current.y()), QgsUnitTypes.LayoutMillimeters))
+            item.attemptMove(
+                QgsLayoutPoint(
+                    float(x if x is not None else current.x()),
+                    float(y if y is not None else current.y()),
+                    QgsUnitTypes.LayoutUnit.LayoutMillimeters,
+                )
+            )
         if width is not None or height is not None:
             current = item.sizeWithUnits()
-            item.attemptResize(QgsLayoutSize(float(width if width is not None else current.width()), float(height if height is not None else current.height()), QgsUnitTypes.LayoutMillimeters))
+            item.attemptResize(
+                QgsLayoutSize(
+                    float(width if width is not None else current.width()),
+                    float(height if height is not None else current.height()),
+                    QgsUnitTypes.LayoutUnit.LayoutMillimeters,
+                )
+            )
         if rotation is not None:
             item.setItemRotation(float(rotation))
         if visible is not None:
@@ -430,7 +442,7 @@ class AdvancedCartographyTools:
     def _symbol(symbol):
         return {
             "type": int(symbol.type()),
-            "color": symbol.color().name(QColor.HexArgb),
+            "color": symbol.color().name(QColor.NameFormat.HexArgb),
             "opacity": symbol.opacity(),
             "output_unit": int(symbol.outputUnit()),
             "layers": [
@@ -548,10 +560,10 @@ class AdvancedCartographyTools:
 def _symbol_for_layer(layer, color, opacity, size, width):
     geometry = QgsWkbTypes.geometryType(layer.wkbType())
     properties = {"color": str(color)}
-    if geometry == QgsWkbTypes.PointGeometry:
+    if geometry == QgsWkbTypes.GeometryType.PointGeometry:
         properties["size"] = str(size)
         symbol = QgsMarkerSymbol.createSimple(properties)
-    elif geometry == QgsWkbTypes.LineGeometry:
+    elif geometry == QgsWkbTypes.GeometryType.LineGeometry:
         properties["width"] = str(width)
         symbol = QgsLineSymbol.createSimple(properties)
     else:
@@ -575,12 +587,12 @@ def _style_names(style, kind):
 
 def _placement(value):
     mapping = {
-        "around_point": QgsPalLayerSettings.AroundPoint,
-        "over_point": QgsPalLayerSettings.OverPoint,
-        "line": QgsPalLayerSettings.Line,
-        "curved": QgsPalLayerSettings.Curved,
-        "horizontal": QgsPalLayerSettings.Horizontal,
-        "free": QgsPalLayerSettings.Free,
+        "around_point": QgsPalLayerSettings.Placement.AroundPoint,
+        "over_point": QgsPalLayerSettings.PredefinedPointPosition.OverPoint,
+        "line": QgsPalLayerSettings.Placement.Line,
+        "curved": QgsPalLayerSettings.Placement.Curved,
+        "horizontal": QgsPalLayerSettings.Placement.Horizontal,
+        "free": QgsPalLayerSettings.Placement.Free,
     }
     result = mapping.get(str(value).casefold())
     if result is None:
@@ -590,9 +602,9 @@ def _placement(value):
 
 def _shape_type(value):
     mapping = {
-        "rectangle": QgsLayoutItemShape.Rectangle,
-        "ellipse": QgsLayoutItemShape.Ellipse,
-        "triangle": QgsLayoutItemShape.Triangle,
+        "rectangle": QgsLayoutItemShape.Shape.Rectangle,
+        "ellipse": QgsLayoutItemShape.Shape.Ellipse,
+        "triangle": QgsLayoutItemShape.Shape.Triangle,
     }
     result = mapping.get(str(value).casefold())
     if result is None:
