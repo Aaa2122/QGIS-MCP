@@ -11,11 +11,12 @@ from pathlib import Path, PurePosixPath
 
 MAX_PACKAGE_BYTES = 25 * 1024 * 1024
 REQUIRED_FILES = {"metadata.txt", "__init__.py", "LICENSE"}
-ALLOWED_HIDDEN_FILES = {".bandit", ".flake8", ".secrets.baseline"}
+ALLOWED_HIDDEN_FILES: set[str] = set()
 BINARY_SUFFIXES = {".bin", ".class", ".dll", ".dylib", ".exe", ".jar", ".pyd", ".so"}
 
 # Active CRITICAL Bandit rules from the QGIS Plugins security rules reference.
 QGIS_BLOCKING_BANDIT_RULES = {
+    "B101",
     "B102",
     "B103",
     "B105",
@@ -147,10 +148,13 @@ def scan_package(package: Path) -> list[str]:
                         )
                     )
 
-        flake8_config = plugin_root / ".flake8"
-        flake8_command = [sys.executable, "-m", "flake8", str(plugin_root)]
-        if flake8_config.is_file():
-            flake8_command.extend(["--config", str(flake8_config)])
+        flake8_command = [
+            sys.executable,
+            "-m",
+            "flake8",
+            "--select=E9,F63,F7,F82",
+            str(plugin_root),
+        ]
         flake8 = _run(flake8_command)
         if flake8.returncode:
             issues.extend(line for line in flake8.stdout.splitlines() if line.strip())

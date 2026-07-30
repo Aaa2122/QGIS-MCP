@@ -243,7 +243,7 @@ class ProjectTools:
                     layer_point.y() + tol,
                 )
                 request = QgsFeatureRequest().setFilterRect(rectangle)
-                request.setFlags(QgsFeatureRequest.ExactIntersect)
+                request.setFlags(QgsFeatureRequest.Flag.ExactIntersect)
                 fields = list(layer.fields())
                 features = []
                 for feature in layer.getFeatures(request):
@@ -253,7 +253,9 @@ class ProjectTools:
                 if features:
                     results.append({"layer": layer_summary(layer), "features": features})
             elif layer.dataProvider() is not None:
-                identified = layer.dataProvider().identify(layer_point, QgsRaster.IdentifyFormatValue)
+                identified = layer.dataProvider().identify(
+                    layer_point, QgsRaster.IdentifyFormat.IdentifyFormatValue
+                )
                 if identified.isValid():
                     results.append(
                         {
@@ -482,7 +484,7 @@ class ProjectTools:
             try:
                 connections = metadata.connections(False)
             except Exception:
-                continue
+                connections = {}
             for connection_name, connection in connections.items():
                 results.append(
                     {

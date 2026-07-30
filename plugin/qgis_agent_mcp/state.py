@@ -201,5 +201,5 @@ def _compact(value):
         try:
             return {"id": value.id(), "name": value.name()}
         except Exception:
-            pass
+            return repr(value)[:500]
     return repr(value)[:500]

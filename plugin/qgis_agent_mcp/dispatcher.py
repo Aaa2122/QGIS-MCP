@@ -598,7 +598,7 @@ class Dispatcher:
             request.setFilterFids(target.selectedFeatureIds())
         request.setSubsetOfAttributes(field_names, target.fields())
         if not include_geometry:
-            request.setFlags(QgsFeatureRequest.NoGeometry)
+            request.setFlags(QgsFeatureRequest.Flag.NoGeometry)
         if hasattr(request, "setOffset"):
             request.setLimit(limit + 1)
             request.setOffset(offset)
@@ -632,9 +632,9 @@ class Dispatcher:
             target.removeSelection()
         else:
             behavior = {
-                "replace": QgsVectorLayer.SetSelection,
-                "add": QgsVectorLayer.AddToSelection,
-                "remove": QgsVectorLayer.RemoveFromSelection,
+                "replace": QgsVectorLayer.SelectBehavior.SetSelection,
+                "add": QgsVectorLayer.SelectBehavior.AddToSelection,
+                "remove": QgsVectorLayer.SelectBehavior.RemoveFromSelection,
             }.get(mode)
             if behavior is None:
                 raise ValueError("Unknown selection mode")
@@ -832,9 +832,11 @@ class Dispatcher:
                 raise ValueError("Screenshot target must be a QWidget")
         pixmap = widget.grab()
         if pixmap.width() > int(max_width):
-            pixmap = pixmap.scaledToWidth(int(max_width), Qt.SmoothTransformation)
+            pixmap = pixmap.scaledToWidth(
+                int(max_width), Qt.TransformationMode.SmoothTransformation
+            )
         buffer = QBuffer()
-        buffer.open(QIODevice.WriteOnly)
+        buffer.open(QIODevice.OpenModeFlag.WriteOnly)
         if not pixmap.save(buffer, "PNG"):
             raise RuntimeError("Could not encode screenshot")
         import base64
@@ -1019,7 +1021,9 @@ class Dispatcher:
         canvas.refresh()
         deadline = time.monotonic() + max(0, min(int(wait_ms), 5000)) / 1000.0
         while canvas.isDrawing() and time.monotonic() < deadline:
-            QCoreApplication.processEvents(QEventLoop.ExcludeUserInputEvents, 25)
+            QCoreApplication.processEvents(
+                QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents, 25
+            )
             time.sleep(0.01)
         capture = (
             self._layout_screenshot(layout, page=page, max_width=max_width)
@@ -1123,9 +1127,11 @@ class Dispatcher:
         if image.isNull():
             raise RuntimeError("Could not render the requested layout page")
         if image.width() > int(max_width):
-            image = image.scaledToWidth(int(max_width), Qt.SmoothTransformation)
+            image = image.scaledToWidth(
+                int(max_width), Qt.TransformationMode.SmoothTransformation
+            )
         buffer = QBuffer()
-        buffer.open(QIODevice.WriteOnly)
+        buffer.open(QIODevice.OpenModeFlag.WriteOnly)
         if not image.save(buffer, "PNG"):
             raise RuntimeError("Could not encode the layout review image")
         import base64
@@ -1554,10 +1560,10 @@ class QgsApplicationMessageLog:
 
         def callback(message, tag, level):
             level_name = {
-                Qgis.Info: "info",
-                Qgis.Warning: "warning",
-                Qgis.Critical: "error",
-                Qgis.Success: "info",
+                Qgis.MessageLevel.Info: "info",
+                Qgis.MessageLevel.Warning: "warning",
+                Qgis.MessageLevel.Critical: "error",
+                Qgis.MessageLevel.Success: "info",
             }.get(level, "info")
             log.add("qgis.message", message, level_name, {"tag": tag})
 
@@ -1569,7 +1575,7 @@ class QgsApplicationMessageLog:
         if cls._signal is not None and cls._callback is not None:
             try:
                 cls._signal.disconnect(cls._callback)
-            except Exception:
-                pass
+            except (RuntimeError, TypeError) as exc:
+                log.add("qgis.message", "Message log disconnect failed", "warning", {"cause": str(exc)})
         cls._signal = None
         cls._callback = None

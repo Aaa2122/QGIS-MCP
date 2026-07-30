@@ -72,3 +72,16 @@ jobs:
       - name: Stop QGIS container
         if: always()
         run: docker rm -f qgis-ltr
+
+  qgis4-compatibility:
+    name: PyQGIS 4 / Qt6 compatibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    container:
+      image: ghcr.io/qgis/pyqgis4-checker:main-ubuntu
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check QGIS plugin code
+        run: pyqt5_to_pyqt6.py plugin/qgis_agent_mcp
+      - name: Check bundled MCP runtime
+        run: pyqt5_to_pyqt6.py src/qgis_mcp

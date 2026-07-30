@@ -406,7 +406,9 @@ class EcosystemTools:
         extent = settings.extent()
         return {
             "name": _canvas_name(canvas),
-            "background_color": settings.backgroundColor().name(QColor.HexArgb),
+            "background_color": settings.backgroundColor().name(
+                QColor.NameFormat.HexArgb
+            ),
             "show_labels": settings.showLabels(),
             "field_of_view": settings.fieldOfView(),
             "movement_speed": settings.cameraMovementSpeed(),

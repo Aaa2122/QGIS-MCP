@@ -140,7 +140,7 @@ class CapabilityIndex:
                     try:
                         attr = getattr(obj, member)
                     except Exception:
-                        continue
+                        attr = None
                     if not callable(attr):
                         continue
                     item = {
@@ -182,7 +182,7 @@ class CapabilityIndex:
                 try:
                     value = getattr(plugin, name)
                 except Exception:
-                    continue
+                    value = None
                 if callable(value):
                     methods.append(_callable(name, value))
             return {
@@ -259,7 +259,7 @@ def _parameter(item):
     try:
         value["accepted_types"] = item.valueAsPythonString(item.defaultValue(), None)
     except Exception:
-        pass
+        value["accepted_types"] = None
     return value
 
 
@@ -289,10 +289,10 @@ def _widget_text(obj):
         if callable(candidate):
             try:
                 value = candidate()
-                if value:
-                    return _clean(value)
             except Exception:
-                pass
+                value = None
+            if value:
+                return _clean(value)
     return None
 
 

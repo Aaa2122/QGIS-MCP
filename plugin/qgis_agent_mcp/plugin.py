@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from qgis.core import Qgis
+from qgis.core import Qgis, QgsMessageLog
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction
 
@@ -44,14 +44,14 @@ class QgisAgentMcpPlugin:
             self.iface.messageBar().pushMessage(
                 "QGIS Agent MCP",
                 "Bridge ready. Click “Connect an AI client” for one-click setup.",
-                level=Qgis.Success,
+                level=Qgis.MessageLevel.Success,
                 duration=12,
             )
         except Exception as exc:
             self.iface.messageBar().pushMessage(
                 "QGIS Agent MCP",
                 "Bridge failed to start: {}".format(exc),
-                level=Qgis.Critical,
+                level=Qgis.MessageLevel.Critical,
                 duration=0,
             )
             self.unload()
@@ -66,15 +66,15 @@ class QgisAgentMcpPlugin:
             try:
                 self.iface.removePluginMenu("&QGIS Agent MCP", self.connect_action)
                 self.iface.removeToolBarIcon(self.connect_action)
-            except Exception:
-                pass
+            except (RuntimeError, TypeError) as exc:
+                QgsMessageLog.logMessage(str(exc), "QGIS Agent MCP", Qgis.MessageLevel.Warning)
             self.connect_action.deleteLater()
             self.connect_action = None
         if self.status_action is not None:
             try:
                 self.iface.removePluginMenu("&QGIS Agent MCP", self.status_action)
-            except Exception:
-                pass
+            except (RuntimeError, TypeError) as exc:
+                QgsMessageLog.logMessage(str(exc), "QGIS Agent MCP", Qgis.MessageLevel.Warning)
             self.status_action.deleteLater()
             self.status_action = None
         if self.bridge is not None:
@@ -88,7 +88,7 @@ class QgisAgentMcpPlugin:
     def _show_status(self):
         if self.bridge is None:
             message = "Bridge is not running"
-            level = Qgis.Warning
+            level = Qgis.MessageLevel.Warning
         else:
             message = (
                 "Listening on 127.0.0.1:{}; {} authenticated client(s); "
@@ -101,7 +101,7 @@ class QgisAgentMcpPlugin:
                     if state["authenticated"]
                 ),
             )
-            level = Qgis.Info
+            level = Qgis.MessageLevel.Info
         self.iface.messageBar().pushMessage(
             "QGIS Agent MCP", message, level=level, duration=10
         )
