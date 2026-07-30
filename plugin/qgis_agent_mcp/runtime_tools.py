@@ -253,7 +253,7 @@ class RuntimeTools:
             if not isinstance(params, dict):
                 errors.append({"index": index, "method": method, "message": "params must be an object"})
                 params = {}
-            if method in {"python.exec", "ui.invoke", "capabilities.invoke"}:
+            if method in {"ui.invoke", "capabilities.invoke"}:
                 warnings.append({"index": index, "method": method, "message": "escape hatch requires elevated trust"})
             normalized.append(
                 {
@@ -337,7 +337,7 @@ class RuntimeTools:
         policy = getattr(self.data_manager, "policy", None)
         output_policy = getattr(self.layout_manager, "output_policy", None)
         return {
-            "python_execution": bool(os.environ.get("QGIS_MCP_ENABLE_PYTHON")),
+            "python_execution": False,
             "network": {
                 "private_hosts_allowed": bool(getattr(policy, "allow_private", False)),
                 "allowed_hosts": sorted(getattr(policy, "allowed_hosts", set())),

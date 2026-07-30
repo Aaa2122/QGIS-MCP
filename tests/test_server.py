@@ -73,6 +73,12 @@ def test_full_catalog_mode_remains_available():
     assert names == set(TOOL_METHODS) | DISCOVERY_TOOL_NAMES
 
 
+def test_catalog_excludes_arbitrary_python_execution():
+    assert "qgis_python_exec" not in {tool["name"] for tool in TOOLS}
+    assert "qgis_python_exec" not in TOOL_METHODS
+    assert "python.exec" not in TOOL_METHODS.values()
+
+
 def test_adaptive_catalog_has_bounded_default_context_cost():
     status = ToolRegistry("adaptive").status()
     assert status["catalog_tools"] == len(TOOLS)

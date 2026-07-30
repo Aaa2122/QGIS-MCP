@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-import contextlib
-import io
 import json
 import os
-import sys
 import time
 import traceback
 from urllib.parse import unquote, urlparse
@@ -76,7 +73,6 @@ MUTATION_METHODS = {
     "capabilities.invoke",
     "processing.start",
     "operation.control",
-    "python.exec",
     "ui.invoke",
     "batch.execute",
     "artifact.release",
@@ -185,12 +181,6 @@ class Dispatcher:
         self.objects = ObjectRegistry(iface)
         self.capabilities = CapabilityIndex(iface, self.objects)
         self.operations = OperationManager(self.log, self.state, self.artifacts)
-        self.python_enabled = _truthy(os.environ.get("QGIS_MCP_ENABLE_PYTHON"))
-        self._python_globals = {
-            "__builtins__": __builtins__,
-            "iface": iface,
-            "project": QgsProject.instance(),
-        }
         self._methods = {
             "session.snapshot": self.session_snapshot,
             "project.inspect": self.project_inspect,
@@ -204,7 +194,6 @@ class Dispatcher:
             "capabilities.invoke": self.capabilities_invoke,
             "processing.start": self.processing_start,
             "operation.control": self.operation_control,
-            "python.exec": self.python_exec,
             "ui.search": self.ui_search,
             "ui.invoke": self.ui_invoke,
             "ui.screenshot": self.ui_screenshot,
@@ -440,7 +429,7 @@ class Dispatcher:
         if detail != "summary":
             result["capabilities"] = self.capabilities.summary()
             result["operations"] = self.operations.list_public()
-            result["python_execution_enabled"] = self.python_enabled
+            result["python_execution_enabled"] = False
             result["open_windows"] = [
                 self.objects.summarize(runtime_id, obj)
                 for runtime_id, obj in self.objects.refresh().items()
@@ -791,55 +780,6 @@ class Dispatcher:
     def operation_control(self, operation_id, action="status"):
         return self.operations.control(operation_id, action)
 
-    def python_exec(
-        self, code, mode="exec", result_expression=None, timeout_ms=30000
-    ):
-        if not self.python_enabled:
-            raise DispatchError(
-                -32020,
-                "Python execution is disabled",
-                {
-                    "enable": (
-                        "Set QGIS_MCP_ENABLE_PYTHON=1 before starting QGIS. "
-                        "This grants arbitrary code execution in the QGIS process."
-                    )
-                },
-            )
-        if mode not in {"eval", "exec"}:
-            raise ValueError("mode must be eval or exec")
-        started = time.monotonic()
-        deadline = started + int(timeout_ms) / 1000.0
-        stdout, stderr = io.StringIO(), io.StringIO()
-        previous_trace = sys.gettrace()
-
-        def deadline_trace(frame, event, arg):
-            if time.monotonic() > deadline:
-                raise TimeoutError("Python execution exceeded timeout_ms")
-            return deadline_trace
-
-        result = None
-        try:
-            sys.settrace(deadline_trace)
-            with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
-                if mode == "eval":
-                    result = eval(code, self._python_globals, self._python_globals)
-                else:
-                    exec(code, self._python_globals, self._python_globals)
-                    if result_expression:
-                        result = eval(
-                            result_expression, self._python_globals, self._python_globals
-                        )
-        finally:
-            sys.settrace(previous_trace)
-        self.state.touch("python.executed", {"mode": mode})
-        return {
-            "result": json_safe(result),
-            "stdout": stdout.getvalue(),
-            "stderr": stderr.getvalue(),
-            "elapsed_ms": round((time.monotonic() - started) * 1000, 3),
-            "note": "The timeout can interrupt Python bytecode, not blocking C++/provider calls.",
-        }
-
     def ui_search(self, query="", types=None, visible_only=True, limit=50):
         needle = query.casefold().strip()
         wanted = {item.casefold() for item in types} if types else None
@@ -1054,10 +994,10 @@ class Dispatcher:
                 raise ValueError("correction_calls are required for action=apply")
             if len(correction_calls) > 25:
                 raise ValueError("At most 25 correction calls are allowed")
-            forbidden = {"batch.execute", "visual.review", "workflow.execute", "python.exec"}
+            forbidden = {"batch.execute", "visual.review", "workflow.execute"}
             requested_methods = {str(call.get("method")) for call in correction_calls}
             if requested_methods & forbidden:
-                raise ValueError("Nested orchestration and Python corrections are not allowed")
+                raise ValueError("Nested orchestration corrections are not allowed")
             preflight = self.runtime_tools.preflight(correction_calls)
             if not preflight["valid"]:
                 raise ValueError("Visual correction preflight failed: {}".format(preflight["errors"]))
@@ -1600,10 +1540,6 @@ def _resource(uri, name, state):
         "mimeType": "application/json",
         "revision": state.resource_revision(uri),
     }
-
-
-def _truthy(value):
-    return str(value or "").strip().casefold() in {"1", "true", "yes", "on"}
 
 
 class QgsApplicationMessageLog:
