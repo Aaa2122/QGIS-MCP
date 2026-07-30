@@ -97,9 +97,9 @@ class VectorRasterTools:
             if constraint:
                 flag = _constraint(constraint)
                 strength = (
-                    QgsFieldConstraints.ConstraintStrengthSoft
+                    QgsFieldConstraints.ConstraintStrength.ConstraintStrengthSoft
                     if constraint_strength == "soft"
-                    else QgsFieldConstraints.ConstraintStrengthHard
+                    else QgsFieldConstraints.ConstraintStrength.ConstraintStrengthHard
                 )
                 target.setFieldConstraint(index, flag, strength)
                 if constraint == "expression":
@@ -373,7 +373,9 @@ class VectorRasterTools:
         elif action == "expression":
             if not expression:
                 raise ValueError("expression is required")
-            target.selectByExpression(str(expression), QgsVectorLayer.SetSelection)
+            target.selectByExpression(
+                str(expression), QgsVectorLayer.SelectBehavior.SetSelection
+            )
         elif action == "ids":
             target.selectByIds([int(value) for value in feature_ids or []])
         elif action == "rect":
@@ -384,7 +386,7 @@ class VectorRasterTools:
                 rectangle = QgsCoordinateTransform(
                     QgsCoordinateReferenceSystem(str(crs)), target.crs(), QgsProject.instance()
                 ).transformBoundingBox(rectangle)
-            target.selectByRect(rectangle, QgsVectorLayer.SetSelection)
+            target.selectByRect(rectangle, QgsVectorLayer.SelectBehavior.SetSelection)
         else:
             raise ValueError("Unknown selection action")
         self.state.touch("selection.advanced", {"layer_id": target.id(), "action": action})
@@ -434,7 +436,7 @@ class VectorRasterTools:
         if action == "statistics":
             stats = provider.bandStatistics(
                 band,
-                QgsRasterBandStats.All,
+                QgsRasterBandStats.Stats.All,
                 target.extent(),
                 max(0, int(sample_size)),
             )
@@ -563,9 +565,9 @@ def _field_type(value):
 
 def _constraint(value):
     mapping = {
-        "not_null": QgsFieldConstraints.ConstraintNotNull,
-        "unique": QgsFieldConstraints.ConstraintUnique,
-        "expression": QgsFieldConstraints.ConstraintExpression,
+        "not_null": QgsFieldConstraints.Constraint.ConstraintNotNull,
+        "unique": QgsFieldConstraints.Constraint.ConstraintUnique,
+        "expression": QgsFieldConstraints.Constraint.ConstraintExpression,
     }
     result = mapping.get(str(value).casefold())
     if result is None:
@@ -575,9 +577,9 @@ def _constraint(value):
 
 def _snapping_mode(value):
     mapping = {
-        "active_layer": QgsSnappingConfig.ActiveLayer,
-        "all_layers": QgsSnappingConfig.AllLayers,
-        "advanced": QgsSnappingConfig.AdvancedConfiguration,
+        "active_layer": QgsSnappingConfig.SnappingMode.ActiveLayer,
+        "all_layers": QgsSnappingConfig.SnappingMode.AllLayers,
+        "advanced": QgsSnappingConfig.SnappingMode.AdvancedConfiguration,
     }
     result = mapping.get(str(value).casefold())
     if result is None:

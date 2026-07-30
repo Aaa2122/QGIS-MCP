@@ -4,7 +4,6 @@ import json
 import os
 import re
 import shutil
-import subprocess
 import sys
 import tempfile
 import time
@@ -28,68 +27,45 @@ class CommandResult:
 
 
 class CommandRunner:
+    def __init__(self, process_factory=None):
+        self.process_factory = process_factory
+
     def run(self, command, input_text=None, timeout=30, event_pump=None):
         command = [str(item) for item in command]
-        if event_pump is not None:
-            return self._run_with_event_pump(
-                command, input_text, timeout, event_pump
-            )
-        try:
-            completed = subprocess.run(
-                command,
-                input=input_text,
-                text=True,
-                capture_output=True,
-                timeout=timeout,
-                check=False,
-                creationflags=(
-                    subprocess.CREATE_NO_WINDOW
-                    if os.name == "nt" and hasattr(subprocess, "CREATE_NO_WINDOW")
-                    else 0
-                ),
-            )
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            return CommandResult(-1, "", str(exc))
-        return CommandResult(
-            completed.returncode, completed.stdout or "", completed.stderr or ""
-        )
+        if not command:
+            return CommandResult(-1, "", "Command is empty")
+        if self.process_factory is None:
+            from qgis.PyQt.QtCore import QProcess
 
-    @staticmethod
-    def _run_with_event_pump(command, input_text, timeout, event_pump):
-        try:
-            process = subprocess.Popen(
-                command,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                creationflags=(
-                    subprocess.CREATE_NO_WINDOW
-                    if os.name == "nt" and hasattr(subprocess, "CREATE_NO_WINDOW")
-                    else 0
-                ),
-            )
-        except OSError as exc:
-            return CommandResult(-1, "", str(exc))
+            process = QProcess()
+        else:
+            process = self.process_factory()
+        process.start(command[0], command[1:])
+        timeout_ms = max(1, int(float(timeout) * 1000))
+        if not process.waitForStarted(min(timeout_ms, 5000)):
+            return CommandResult(-1, "", process.errorString())
+        if input_text is not None:
+            process.write(str(input_text).encode("utf-8"))
+            process.closeWriteChannel()
         deadline = time.monotonic() + float(timeout)
-        first_attempt = True
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 process.kill()
-                stdout, stderr = process.communicate()
+                process.waitForFinished(1000)
                 message = "Command timed out after {} seconds".format(timeout)
-                return CommandResult(-1, stdout or "", (stderr or "") + message)
-            try:
-                stdout, stderr = process.communicate(
-                    input=input_text if first_attempt else None,
-                    timeout=min(0.05, remaining),
-                )
                 return CommandResult(
-                    process.returncode, stdout or "", stderr or ""
+                    -1,
+                    _qprocess_text(process.readAllStandardOutput()),
+                    _qprocess_text(process.readAllStandardError()) + message,
                 )
-            except subprocess.TimeoutExpired:
-                first_attempt = False
+            if process.waitForFinished(max(1, min(50, int(remaining * 1000)))):
+                return CommandResult(
+                    int(process.exitCode()),
+                    _qprocess_text(process.readAllStandardOutput()),
+                    _qprocess_text(process.readAllStandardError()),
+                )
+            if event_pump is not None:
                 event_pump()
 
 
@@ -356,7 +332,7 @@ def health_check(spec, timeout=15, event_pump=None):
             "params": {
                 "protocolVersion": "2025-06-18",
                 "capabilities": {},
-                "clientInfo": {"name": "qgis-onboarding", "version": "0.4.2"},
+                "clientInfo": {"name": "qgis-onboarding", "version": "0.4.3"},
             },
         },
         {
@@ -472,3 +448,7 @@ def _toml_string(value):
 
 def _result_message(result):
     return (result.stderr or result.stdout or "unknown error").strip()
+
+
+def _qprocess_text(value):
+    return bytes(value).decode("utf-8", errors="replace")

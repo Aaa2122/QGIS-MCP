@@ -53,7 +53,9 @@ class ConnectAiDialog(QDialog):
         root.addWidget(intro)
 
         self.runtime_label = QLabel("Preparing the bundled MCP runtime…")
-        self.runtime_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.runtime_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
         root.addWidget(self.runtime_label)
 
         clients = QGroupBox("Detected AI clients")
@@ -89,7 +91,7 @@ class ConnectAiDialog(QDialog):
         self.log.setPlaceholderText("Connection and repair details appear here.")
         root.addWidget(self.log, 1)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
 
@@ -151,7 +153,7 @@ class ConnectAiDialog(QDialog):
     def _connect(self, connector):
         if self.spec is None:
             return
-        QApplication.setOverrideCursor(Qt.WaitCursor)
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
             message = connector.install(self.spec)
             self._append(message)
@@ -179,7 +181,7 @@ class ConnectAiDialog(QDialog):
             "Disconnect QGIS Agent MCP",
             "Remove the QGIS MCP entry from {}?".format(connector.name),
         )
-        if answer != QMessageBox.Yes:
+        if answer != QMessageBox.StandardButton.Yes:
             return
         try:
             self._append(connector.remove())
@@ -202,7 +204,7 @@ class ConnectAiDialog(QDialog):
     def _test_connection(self):
         if self.spec is None:
             return
-        QApplication.setOverrideCursor(Qt.WaitCursor)
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
             result = health_check(self.spec, event_pump=self._process_bridge_events)
             message = (
@@ -222,4 +224,6 @@ class ConnectAiDialog(QDialog):
 
     @staticmethod
     def _process_bridge_events():
-        QApplication.processEvents(QEventLoop.ExcludeUserInputEvents, 25)
+        QApplication.processEvents(
+            QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents, 25
+        )

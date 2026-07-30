@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_security_gate_tracks_non_skippable_python_execution_rules():
-    assert {"B102", "B307"} <= QGIS_BLOCKING_BANDIT_RULES
+    assert {"B101", "B102", "B307"} <= QGIS_BLOCKING_BANDIT_RULES
 
 
 def test_built_plugin_passes_publication_structure_checks(tmp_path):

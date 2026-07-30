@@ -419,7 +419,7 @@ class LayoutManager:
                 status = exporter.exportToSvg(str(destination), QgsLayoutExporter.SvgExportSettings())
             else:
                 raise ValueError("format must be pdf, png, or svg")
-            if status != QgsLayoutExporter.Success:
+            if status != QgsLayoutExporter.ExportResult.Success:
                 raise RuntimeError("QGIS layout export failed with status {}".format(int(status)))
             self.state.touch("layout.exported", {"name": name, "format": export_format})
             return {"layout": name, "path": str(destination), "format": export_format}
@@ -436,13 +436,17 @@ class LayoutManager:
             width, height = 297, 210
         else:
             raise ValueError("orientation must be portrait or landscape")
-        page.setPageSize(QgsLayoutSize(width, height, QgsUnitTypes.LayoutMillimeters))
+        page.setPageSize(
+            QgsLayoutSize(width, height, QgsUnitTypes.LayoutUnit.LayoutMillimeters)
+        )
         margin = 12
         title_item = QgsLayoutItemLabel(layout)
         title_item.setText(title)
-        title_item.setFont(QFont("Sans Serif", 18, QFont.Bold))
+        title_item.setFont(QFont("Sans Serif", 18, QFont.Weight.Bold))
         title_item.adjustSizeToText()
-        title_item.attemptMove(QgsLayoutPoint(margin, 8, QgsUnitTypes.LayoutMillimeters))
+        title_item.attemptMove(
+            QgsLayoutPoint(margin, 8, QgsUnitTypes.LayoutUnit.LayoutMillimeters)
+        )
         layout.addLayoutItem(title_item)
         top = 24
         if subtitle:
@@ -450,14 +454,22 @@ class LayoutManager:
             subtitle_item.setText(subtitle)
             subtitle_item.setFont(QFont("Sans Serif", 9))
             subtitle_item.adjustSizeToText()
-            subtitle_item.attemptMove(QgsLayoutPoint(margin, 19, QgsUnitTypes.LayoutMillimeters))
+            subtitle_item.attemptMove(
+                QgsLayoutPoint(margin, 19, QgsUnitTypes.LayoutUnit.LayoutMillimeters)
+            )
             layout.addLayoutItem(subtitle_item)
             top = 30
         map_width = width - 2 * margin - 48
         map_height = height - top - 23
         map_item = QgsLayoutItemMap(layout)
-        map_item.attemptMove(QgsLayoutPoint(margin, top, QgsUnitTypes.LayoutMillimeters))
-        map_item.attemptResize(QgsLayoutSize(map_width, map_height, QgsUnitTypes.LayoutMillimeters))
+        map_item.attemptMove(
+            QgsLayoutPoint(margin, top, QgsUnitTypes.LayoutUnit.LayoutMillimeters)
+        )
+        map_item.attemptResize(
+            QgsLayoutSize(
+                map_width, map_height, QgsUnitTypes.LayoutUnit.LayoutMillimeters
+            )
+        )
         canvas_extent = self.iface.mapCanvas().extent() if self.iface else None
         if canvas_extent is not None and not canvas_extent.isEmpty():
             map_item.setExtent(canvas_extent)
@@ -472,21 +484,43 @@ class LayoutManager:
         legend = QgsLayoutItemLegend(layout)
         legend.setLinkedMap(map_item)
         legend.setTitle("Légende")
-        legend.attemptMove(QgsLayoutPoint(width - margin - 43, top, QgsUnitTypes.LayoutMillimeters))
-        legend.attemptResize(QgsLayoutSize(43, max(45, map_height - 25), QgsUnitTypes.LayoutMillimeters))
+        legend.attemptMove(
+            QgsLayoutPoint(
+                width - margin - 43,
+                top,
+                QgsUnitTypes.LayoutUnit.LayoutMillimeters,
+            )
+        )
+        legend.attemptResize(
+            QgsLayoutSize(
+                43,
+                max(45, map_height - 25),
+                QgsUnitTypes.LayoutUnit.LayoutMillimeters,
+            )
+        )
         layout.addLayoutItem(legend)
         scale = QgsLayoutItemScaleBar(layout)
         scale.setStyle("Single Box")
         scale.setLinkedMap(map_item)
         scale.applyDefaultSize()
-        scale.attemptMove(QgsLayoutPoint(margin, height - 18, QgsUnitTypes.LayoutMillimeters))
+        scale.attemptMove(
+            QgsLayoutPoint(
+                margin, height - 18, QgsUnitTypes.LayoutUnit.LayoutMillimeters
+            )
+        )
         layout.addLayoutItem(scale)
         if source_text:
             source = QgsLayoutItemLabel(layout)
             source.setText(source_text)
             source.setFont(QFont("Sans Serif", 7))
             source.adjustSizeToText()
-            source.attemptMove(QgsLayoutPoint(width - margin - 95, height - 14, QgsUnitTypes.LayoutMillimeters))
+            source.attemptMove(
+                QgsLayoutPoint(
+                    width - margin - 95,
+                    height - 14,
+                    QgsUnitTypes.LayoutUnit.LayoutMillimeters,
+                )
+            )
             layout.addLayoutItem(source)
         return layout
 
