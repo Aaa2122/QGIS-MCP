@@ -98,8 +98,8 @@ class McpServer:
                 "Operate on the live QGIS session. Start with qgis_session_snapshot. Use "
                 "qgis_tools to discover specialist tools and qgis_tool_call to invoke a "
                 "hidden specialist without loading the full catalog. Prefer structured tools, "
-                "discover capabilities before invoking them, "
-                "and use qgis_python_exec only as an explicit escape hatch. Large data "
+                "discover capabilities before invoking them, and use QGIS Processing for "
+                "provider algorithms. Large data "
                 "stays in QGIS and is returned through summaries, pages, or handles."
             ),
         }
@@ -135,9 +135,7 @@ class McpServer:
 
     async def _execute_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         timeout = 120.0
-        if name == "qgis_python_exec":
-            timeout = min(305.0, float(arguments.get("timeout_ms", 30000)) / 1000 + 5)
-        elif name == "qgis_batch":
+        if name == "qgis_batch":
             timeout = 305.0
         result = await self.bridge.request(
             self.tools.method_for(name), arguments, timeout=timeout

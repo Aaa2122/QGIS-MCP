@@ -32,13 +32,13 @@ The agent can also search the complete specialist catalog without loading every 
 
 ## Safety
 
-The bridge accepts only authenticated local connections. Arbitrary Python execution is disabled by default and must be enabled explicitly with `QGIS_MCP_ENABLE_PYTHON=1`.
+The bridge accepts only authenticated local connections and does not expose arbitrary Python execution. Agents use typed tools, QGIS Processing algorithms and guarded workflows instead.
 
 ## Compatibility
 
-- QGIS 3.28 or newer
+- QGIS 3.44 LTR or newer in the 3.x series
 - Codex, Claude Code and standard stdio MCP clients
 - No external Python runtime dependency in the packaged plugin
 - Validated on QGIS LTR 3.44.12 with 19 live integration scenarios
 
-Experimental release. Licensed under the [MIT License](LICENSE).
+Licensed under the [MIT License](LICENSE).

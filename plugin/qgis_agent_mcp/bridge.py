@@ -125,7 +125,7 @@ class LocalBridge(QObject):
                     "authenticated": True,
                     "protocol": PROTOCOL_VERSION,
                     "qgis_version": Qgis.QGIS_VERSION,
-                    "python_execution_enabled": self.dispatcher.python_enabled,
+                    "python_execution_enabled": False,
                 },
             )
             return
