@@ -118,7 +118,8 @@ class SpecializedDataTools:
                 if maximum is not None:
                     enhancement.setMaximumValue(float(maximum))
                 enhancement.setContrastEnhancementAlgorithm(
-                    QgsContrastEnhancement.StretchToMinimumMaximum, True
+                    QgsContrastEnhancement.ContrastEnhancementAlgorithm.StretchToMinimumMaximum,
+                    True,
                 )
                 renderer.setContrastEnhancement(enhancement)
             target.setRenderer(renderer)
@@ -135,11 +136,11 @@ class SpecializedDataTools:
             if not isinstance(color_ramp, list) or len(color_ramp) < 2:
                 raise ValueError("color_ramp requires at least two value/color items")
             shader = QgsColorRampShader()
-            shader.setColorRampType(QgsColorRampShader.Interpolated)
+            shader.setColorRampType(QgsColorRampShader.Type.Interpolated)
             if str(interpolation).casefold() == "discrete":
-                shader.setColorRampType(QgsColorRampShader.Discrete)
+                shader.setColorRampType(QgsColorRampShader.Type.Discrete)
             elif str(interpolation).casefold() == "exact":
-                shader.setColorRampType(QgsColorRampShader.Exact)
+                shader.setColorRampType(QgsColorRampShader.Type.Exact)
             shader.setColorRampItemList(
                 [
                     QgsColorRampShader.ColorRampItem(
@@ -452,7 +453,7 @@ def _public_callables(value, query, limit):
         try:
             candidate = getattr(value, name)
         except Exception:
-            continue
+            candidate = None
         if callable(candidate):
             names.append(name)
         if len(names) >= limit:
@@ -506,7 +507,7 @@ def _valid_band(layer, band):
 
 
 def _date_time(value):
-    result = QDateTime.fromString(str(value), Qt.ISODate)
+    result = QDateTime.fromString(str(value), Qt.DateFormat.ISODate)
     if not result.isValid():
         raise ValueError("Datetime must use ISO 8601 format")
     return result
@@ -518,8 +519,8 @@ def _date_range(value):
     begin = _safe_raw(value, "begin")
     end = _safe_raw(value, "end")
     return {
-        "begin": begin.toString(Qt.ISODate) if begin is not None else None,
-        "end": end.toString(Qt.ISODate) if end is not None else None,
+        "begin": begin.toString(Qt.DateFormat.ISODate) if begin is not None else None,
+        "end": end.toString(Qt.DateFormat.ISODate) if end is not None else None,
         "infinite": bool(_safe_value(value, "isInfinite")),
     }
 

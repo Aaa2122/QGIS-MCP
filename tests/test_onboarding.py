@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
 import sys
 import zipfile
 from pathlib import Path
@@ -23,6 +24,59 @@ from qgis_agent_mcp.onboarding import (
 ROOT = Path(__file__).resolve().parents[1]
 
 
+class FakeQProcess:
+    def __init__(self):
+        self.process = None
+        self.input_data = None
+        self.input_sent = False
+        self.stdout = b""
+        self.stderr = b""
+
+    def start(self, program, arguments):
+        self.process = subprocess.Popen(
+            [program] + list(arguments),
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+    def waitForStarted(self, timeout):
+        return self.process is not None
+
+    def write(self, value):
+        self.input_data = bytes(value)
+
+    def closeWriteChannel(self):
+        return None
+
+    def waitForFinished(self, timeout):
+        payload = self.input_data if not self.input_sent else None
+        self.input_sent = True
+        try:
+            self.stdout, self.stderr = self.process.communicate(
+                input=payload, timeout=max(timeout, 1) / 1000
+            )
+        except subprocess.TimeoutExpired:
+            return False
+        return True
+
+    def kill(self):
+        self.process.kill()
+
+    def readAllStandardOutput(self):
+        return self.stdout
+
+    def readAllStandardError(self):
+        return self.stderr
+
+    def exitCode(self):
+        return self.process.returncode
+
+    @staticmethod
+    def errorString():
+        return "Process could not start"
+
+
 def launcher_spec(tmp_path):
     return LauncherSpec(
         command=sys.executable,
@@ -40,6 +94,7 @@ def test_runtime_manager_installs_and_probes_bundled_server(tmp_path):
         plugin_dir=plugin_dir,
         home=tmp_path / "home",
         python_executable=sys.executable,
+        runner=CommandRunner(process_factory=FakeQProcess),
     )
     spec = manager.ensure()
     assert Path(spec.launcher_path).is_file()
@@ -59,7 +114,7 @@ def test_runtime_manager_requires_packaged_server(tmp_path):
 
 def test_command_runner_pumps_events_while_waiting():
     pumps = []
-    result = CommandRunner().run(
+    result = CommandRunner(process_factory=FakeQProcess).run(
         [
             sys.executable,
             "-c",
@@ -170,7 +225,7 @@ def test_plugin_zip_contains_bundled_server_and_no_markdown(tmp_path):
         names = set(archive.namelist())
         metadata = archive.read("qgis_agent_mcp/metadata.txt").decode("utf-8")
     assert "qgis_agent_mcp/metadata.txt" in names
-    assert "qgis_agent_mcp/.flake8" in names
+    assert "qgis_agent_mcp/.flake8" not in names
     assert "qgis_agent_mcp/icon.png" in names
     assert "qgis_agent_mcp/LICENSE" in names
     assert "qgis_agent_mcp/_server/qgis_mcp/__main__.py" in names

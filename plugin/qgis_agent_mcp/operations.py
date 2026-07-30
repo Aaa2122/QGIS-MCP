@@ -39,7 +39,7 @@ class OperationManager:
         context.setProject(QgsProject.instance())
         feedback = QgsProcessingFeedback()
         no_threading = bool(
-            algorithm.flags() & QgsProcessingAlgorithm.FlagNoThreading
+            algorithm.flags() & QgsProcessingAlgorithm.Flag.FlagNoThreading
         )
         operation = {
             "id": operation_id,
@@ -174,7 +174,7 @@ class OperationManager:
         try:
             operation["feedback_log"] = operation["_feedback"].textLog()
         except Exception:
-            pass
+            operation["feedback_log"] = ""
         self.log.add(
             "operation",
             "{} {}".format(operation["algorithm"], operation["status"]),

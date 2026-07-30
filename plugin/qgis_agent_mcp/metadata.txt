@@ -1,7 +1,7 @@
 [general]
 name=QGIS Agent MCP
 description=Connect AI agents to QGIS through a secure, one-click local MCP bridge
-version=0.4.2
+version=0.4.3
 qgisMinimumVersion=3.44
 qgisMaximumVersion=3.99
 author=Auguste Sagaert
@@ -20,4 +20,4 @@ homepage=https://github.com/Aaa2122/QGIS-MCP
 repository=https://github.com/Aaa2122/QGIS-MCP
 tracker=https://github.com/Aaa2122/QGIS-MCP/issues
 icon=icon.png
-changelog=0.4.2 - Secure adaptive tool catalog, restart recovery, visual review and one-click client setup.
+changelog=0.4.3 - Zero Bandit findings, no scanner overrides and Qt6-scoped enums.

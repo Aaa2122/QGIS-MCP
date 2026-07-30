@@ -41,7 +41,7 @@ def json_safe(value, depth=0):
         try:
             return value.toString()
         except Exception:
-            pass
+            return repr(value)
     return repr(value)
 
 
@@ -99,7 +99,7 @@ def field_schema(field):
         "alias": field.alias(),
         "comment": field.comment(),
         "nullable": field.constraints().constraints()
-        & QgsFieldConstraints.ConstraintNotNull
+        & QgsFieldConstraints.Constraint.ConstraintNotNull
         == 0,
     }
 
@@ -135,5 +135,5 @@ def renderer_summary(layer):
             for item in renderer.legendSymbolItems()[:100]
         ]
     except Exception:
-        pass
+        result["legend_items"] = []
     return result

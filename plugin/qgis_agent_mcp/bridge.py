@@ -41,7 +41,9 @@ class LocalBridge(QObject):
         requested_port = int(os.environ.get("QGIS_MCP_PORT", "0"))
         if requested_port < 0 or requested_port > 65535:
             raise ValueError("QGIS_MCP_PORT must be between 0 and 65535")
-        if not self.server.listen(QHostAddress.LocalHost, requested_port):
+        if not self.server.listen(
+            QHostAddress(QHostAddress.SpecialAddress.LocalHost), requested_port
+        ):
             raise RuntimeError("Could not start QGIS MCP bridge: " + self.server.errorString())
         self._write_connection_file()
         self.dispatcher.log.add(

@@ -183,7 +183,7 @@ class DataAcquisitionManager:
             QByteArray(b"User-Agent"), QByteArray(b"QGIS-Agent-MCP/0.4")
         )
         error = network.get(request, True)
-        if error != QgsBlockingNetworkRequest.NoError:
+        if error != QgsBlockingNetworkRequest.ErrorCode.NoError:
             message = network.errorMessage()
             message = message.replace(url, redacted)
             for secret in secret_values or ():
@@ -191,7 +191,9 @@ class DataAcquisitionManager:
                     message = message.replace(str(secret), "***")
             raise RuntimeError("Data download failed: {}".format(message))
         reply = network.reply()
-        status = reply.attribute(QNetworkRequest.HttpStatusCodeAttribute)
+        status = reply.attribute(
+            QNetworkRequest.Attribute.HttpStatusCodeAttribute
+        )
         if status is not None and int(status) >= 400:
             raise RuntimeError("Data source returned HTTP {}".format(status))
         payload = bytes(reply.content())
