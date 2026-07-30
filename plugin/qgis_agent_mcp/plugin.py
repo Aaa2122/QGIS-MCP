@@ -92,7 +92,7 @@ class QgisAgentMcpPlugin:
         else:
             message = (
                 "Listening on 127.0.0.1:{}; {} authenticated client(s); "
-                "Python execution {}"
+                "arbitrary Python execution unavailable"
             ).format(
                 self.bridge.port,
                 sum(
@@ -100,7 +100,6 @@ class QgisAgentMcpPlugin:
                     for state in self.bridge.clients.values()
                     if state["authenticated"]
                 ),
-                "enabled" if self.dispatcher.python_enabled else "disabled",
             )
             level = Qgis.Info
         self.iface.messageBar().pushMessage(

@@ -219,19 +219,6 @@ TOOLS: list[dict[str, Any]] = [
         ),
     },
     {
-        "name": "qgis_python_exec",
-        "description": "Execute Python/PyQGIS in the live QGIS interpreter. This explicit escape hatch is disabled unless enabled in plugin settings or QGIS_MCP_ENABLE_PYTHON=1.",
-        "inputSchema": _object(
-            {
-                "code": {"type": "string"},
-                "mode": {"type": "string", "enum": ["eval", "exec"], "default": "exec"},
-                "result_expression": {"type": "string"},
-                "timeout_ms": {"type": "integer", "minimum": 1, "maximum": 300000, "default": 30000},
-            },
-            ["code"],
-        ),
-    },
-    {
         "name": "qgis_ui_search",
         "description": "Search open Qt windows, docks, actions, menus, toolbars, and widgets by semantic object names and visible text.",
         "inputSchema": _object(
@@ -1828,7 +1815,6 @@ _MUTATION_TOOLS = {
     "qgis_capability_invoke",
     "qgis_processing_start",
     "qgis_operation",
-    "qgis_python_exec",
     "qgis_ui_invoke",
     "qgis_batch",
     "qgis_artifact_release",
@@ -1936,7 +1922,6 @@ TOOL_METHODS = {
     "qgis_capability_invoke": "capabilities.invoke",
     "qgis_processing_start": "processing.start",
     "qgis_operation": "operation.control",
-    "qgis_python_exec": "python.exec",
     "qgis_ui_search": "ui.search",
     "qgis_ui_invoke": "ui.invoke",
     "qgis_screenshot": "ui.screenshot",
