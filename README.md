@@ -39,8 +39,8 @@ Both demos start from the same clean state: a **new, empty QGIS project** with n
 **Starting point:** blank QGIS project → **result:** a France-wide monitoring map with prioritized detections, age categories, labels and a focused Bordeaux view.
 
 <p align="center">
-  <img src="capture%20demo/wildfire-monitoring-france-overview.png" alt="Wildfire monitoring map generated from a blank QGIS project, France overview" width="49%">
-  <img src="capture%20demo/wildfire-monitoring-bordeaux-detail.png" alt="Wildfire monitoring map generated from a blank QGIS project, Bordeaux detail" width="49%">
+  <img src="capture_demo/wildfire-monitoring-france-overview.png" alt="Wildfire monitoring map generated from a blank QGIS project, France overview" width="49%">
+  <img src="capture_demo/wildfire-monitoring-bordeaux-detail.png" alt="Wildfire monitoring map generated from a blank QGIS project, Bordeaux detail" width="49%">
 </p>
 
 <p align="center"><em>Blank project → national overview → local detection detail</em></p>
@@ -50,9 +50,9 @@ Both demos start from the same clean state: a **new, empty QGIS project** with n
 **Starting point:** blank QGIS project → **result:** annual agricultural parcel data combined with satellite imagery, from the national view down to a detailed parcel map with a crop legend.
 
 <p align="center">
-  <img src="capture%20demo/agriculture-france-overview.png" alt="Agricultural data map generated from a blank QGIS project, France overview" width="32%">
-  <img src="capture%20demo/agriculture-parcels-overview.png" alt="Agricultural parcel map generated from a blank QGIS project, regional overview" width="32%">
-  <img src="capture%20demo/agriculture-parcel-detail.png" alt="Agricultural parcel detail and crop legend generated from a blank QGIS project" width="32%">
+  <img src="capture_demo/agriculture-france-overview.png" alt="Agricultural data map generated from a blank QGIS project, France overview" width="32%">
+  <img src="capture_demo/agriculture-parcels-overview.png" alt="Agricultural parcel map generated from a blank QGIS project, regional overview" width="32%">
+  <img src="capture_demo/agriculture-parcel-detail.png" alt="Agricultural parcel detail and crop legend generated from a blank QGIS project" width="32%">
 </p>
 
 <p align="center"><em>Blank project → national coverage → parcel overview → detailed crop map</em></p>
