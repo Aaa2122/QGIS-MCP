@@ -42,18 +42,38 @@ class ResourceRevisionIndex:
         data = data if isinstance(data, dict) else {}
         uris = [SESSION_URI]
         layer_id = data.get("layer_id") or data.get("layer")
+        layer_ids = [str(item) for item in (data.get("layer_ids") or [])]
+        if layer_id is not None:
+            layer_ids.append(str(layer_id))
         operation_id = data.get("id") if event.startswith("operation.") else None
 
         if event.startswith(("project.", "layers.")):
             uris.extend((PROJECT_URI, LAYER_TREE_URI))
         if event.startswith("canvas.") or event == "active_layer.changed":
             uris.append(PROJECT_URI)
-        if event.startswith(("layer.", "selection.", "vector.")) and layer_id:
-            uris.append(layer_uri(layer_id))
-            if event in {"layer.data", "layer.name", "vector.edit"}:
-                uris.append(layer_uri(layer_id, "schema"))
-            if event in {"layer.selection", "selection.set"}:
-                uris.append(layer_uri(layer_id, "selection"))
+        for current_layer_id in dict.fromkeys(layer_ids):
+            uris.append(layer_uri(current_layer_id))
+            if event in {
+                "layer.data",
+                "layer.name",
+                "vector.edit",
+                "vector.schema",
+            }:
+                uris.append(layer_uri(current_layer_id, "schema"))
+            if event in {"layer.selection", "selection.set", "selection.advanced"}:
+                uris.append(layer_uri(current_layer_id, "selection"))
+            if any(
+                token in event
+                for token in ("style", "renderer", "symbol", "label")
+            ):
+                uris.append(layer_uri(current_layer_id, "style"))
+            if event in {"layer.data", "vector.edit", "vector.geometry"}:
+                uris.append(layer_uri(current_layer_id, "data"))
+            if any(
+                token in event
+                for token in ("name", "source", "properties", "temporal", "elevation")
+            ):
+                uris.append(layer_uri(current_layer_id, "metadata"))
         if operation_id:
             uris.append(operation_uri(operation_id))
         if event.startswith("capability."):

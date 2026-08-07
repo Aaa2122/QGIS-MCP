@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import math
 import os
+import re
 import time
 import traceback
 from urllib.parse import unquote, urlparse
@@ -13,11 +16,14 @@ from qgis.core import (
     QgsFeatureRequest,
     QgsGeometry,
     QgsLayoutExporter,
+    QgsPointCloudLayer,
     QgsProject,
     QgsRasterLayer,
+    QgsRectangle,
     QgsVectorLayer,
 )
 from qgis.PyQt.QtCore import QBuffer, QCoreApplication, QEventLoop, QIODevice, Qt
+from qgis.PyQt.QtGui import QColor
 from qgis.PyQt.QtWidgets import (
     QAbstractButton,
     QAction,
@@ -61,11 +67,20 @@ from .serialize import (
 )
 from .specialized_data_tools import SpecializedDataTools
 from .state import StateTracker
-from .store import ArtifactStore, EventLog, HandleStore
+from .store import ArtifactStore, EventLog, HandleStore, PersistentDiagnostics
 from .vector_raster_tools import VectorRasterTools
 from .workflows import WorkflowManager
 
-MAX_INLINE_RESULT_BYTES = 1024 * 1024
+try:
+    _CONFIGURED_INLINE_RESULT_BYTES = int(
+        os.environ.get("QGIS_MCP_MAX_INLINE_RESULT_BYTES", str(64 * 1024))
+    )
+except ValueError:
+    _CONFIGURED_INLINE_RESULT_BYTES = 64 * 1024
+MAX_INLINE_RESULT_BYTES = max(
+    16 * 1024,
+    min(_CONFIGURED_INLINE_RESULT_BYTES, 256 * 1024),
+)
 MUTATION_METHODS = {
     "project.action",
     "selection.set",
@@ -153,6 +168,16 @@ class Dispatcher:
     def __init__(self, iface):
         self.iface = iface
         self.log = EventLog()
+        self.diagnostics = PersistentDiagnostics(
+            os.environ.get("QGIS_MCP_DIAGNOSTICS_FILE")
+        )
+        if self.diagnostics.previous_interruption:
+            self.log.add(
+                "recovery",
+                "The previous QGIS session ended during an MCP call",
+                "warning",
+                {"call_stack": self.diagnostics.previous_interruption},
+            )
         self.handles = HandleStore()
         self.artifacts = ArtifactStore()
         self.mutations = MutationGuard(
@@ -303,7 +328,9 @@ class Dispatcher:
             MUTATION_METHODS,
             self.data,
             self.layouts,
+            self.diagnostics,
         )
+        self._prepared_result = None
         self.project_tools = ProjectTools(iface, self.state, self._layer)
         self.vector_raster_tools = VectorRasterTools(self.state, self._layer)
         self.processing_database_tools = ProcessingDatabaseTools(
@@ -328,9 +355,11 @@ class Dispatcher:
     def close(self):
         self.workflows.close()
         self.state.close()
+        self.diagnostics.flush()
         QgsApplicationMessageLog.disconnect(self.log)
 
     def dispatch(self, method, params):
+        self._prepared_result = None
         handler = self._methods.get(method)
         if handler is None:
             raise DispatchError(-32601, "Unknown QGIS bridge method: {}".format(method))
@@ -361,12 +390,22 @@ class Dispatcher:
                 if found:
                     return cached
             self._check_preconditions(if_revision, resource_preconditions)
+        durable_diagnostics = method in MUTATION_METHODS
+        diagnostic_id = self.diagnostics.begin(
+            method, params, durable=durable_diagnostics
+        )
+        diagnostic_status = "failed"
+        diagnostic_exception = None
         try:
             result = handler(**params)
+            serialized = json.dumps(
+                result,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                default=str,
+            ).encode("utf-8")
             if method not in {"handle.read", "ui.screenshot"}:
-                encoded_size = len(
-                    json.dumps(result, ensure_ascii=False, default=str).encode("utf-8")
-                )
+                encoded_size = len(serialized)
                 if encoded_size > MAX_INLINE_RESULT_BYTES:
                     descriptor = self.handles.put(
                         result,
@@ -381,18 +420,29 @@ class Dispatcher:
                             "payload limit; page it with qgis_handle_read."
                         ),
                     }
+                    serialized = json.dumps(
+                        result,
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                        default=str,
+                    ).encode("utf-8")
+            self._prepared_result = (id(result), serialized)
             if method in MUTATION_METHODS and idempotency_key:
                 self.mutations.remember(str(idempotency_key), method, params, result)
+            diagnostic_status = "succeeded"
             return result
-        except DispatchError:
+        except DispatchError as exc:
+            diagnostic_exception = type(exc).__name__
             raise
         except (KeyError, ValueError, TypeError) as exc:
+            diagnostic_exception = type(exc).__name__
             raise DispatchError(
                 -32602,
                 str(exc).strip("'"),
                 {"method": method, "exception": type(exc).__name__},
             ) from exc
         except Exception as exc:
+            diagnostic_exception = type(exc).__name__
             stack = traceback.format_exc()
             self.log.add("error", str(exc), "error", {"method": method, "traceback": stack})
             raise DispatchError(
@@ -400,6 +450,19 @@ class Dispatcher:
                 "QGIS operation failed: {}".format(exc),
                 {"method": method, "exception": type(exc).__name__, "traceback": stack},
             ) from exc
+        finally:
+            self.diagnostics.finish(
+                diagnostic_id,
+                diagnostic_status,
+                diagnostic_exception,
+                durable=durable_diagnostics,
+            )
+
+    def take_serialized_result(self, result):
+        prepared, self._prepared_result = self._prepared_result, None
+        if prepared is not None and prepared[0] == id(result):
+            return prepared[1]
+        return None
 
     def _check_preconditions(self, revision, resources):
         if revision is not None and int(revision) != self.state.revision:
@@ -422,7 +485,7 @@ class Dispatcher:
                 -32040, "Resource revision precondition failed", {"conflicts": conflicts}
             )
 
-    def session_snapshot(self, detail="standard", since_revision=None):
+    def session_snapshot(self, detail="summary", since_revision=None):
         if detail not in {"summary", "standard", "full"}:
             raise ValueError("detail must be summary, standard, or full")
         result = self.state.snapshot(detail, since_revision)
@@ -493,11 +556,19 @@ class Dispatcher:
             if not success:
                 raise RuntimeError("QGIS could not save the project")
             result = {"file": project.fileName(), "saved": True}
-        elif action in {"add_vector", "add_raster"}:
+        elif action in {"add_vector", "add_raster", "add_point_cloud"}:
             if not source:
                 raise ValueError("source is required")
             layer_name = name or os.path.basename(source) or "Layer"
-            if action == "add_vector":
+            suffix = os.path.splitext(str(source).split("|", 1)[0])[1].casefold()
+            point_cloud = (
+                action == "add_point_cloud"
+                or str(provider or "").casefold() == "pdal"
+                or (action == "add_vector" and suffix in {".las", ".laz"})
+            )
+            if point_cloud:
+                created = QgsPointCloudLayer(source, layer_name, provider or "pdal")
+            elif action == "add_vector":
                 created = QgsVectorLayer(source, layer_name, provider or "ogr")
             else:
                 created = QgsRasterLayer(source, layer_name, provider or "gdal")
@@ -580,25 +651,81 @@ class Dispatcher:
         include_geometry=False,
         limit=100,
         offset=0,
+        cursor=None,
+        order_by=None,
+        descending=False,
+        bbox=None,
+        include_total_count=False,
+        max_bytes=64 * 1024,
     ):
         target = self._vector_layer(layer)
         limit = max(1, min(int(limit), 1000))
         offset = max(0, int(offset))
+        max_bytes = max(1024, min(int(max_bytes), 1024 * 1024))
+        if cursor is not None and offset:
+            raise ValueError("cursor and offset cannot be used together")
+        cursor_fid = None
+        if cursor is not None:
+            prefix, separator, value = str(cursor).partition(":")
+            if prefix != "fid" or not separator:
+                raise ValueError("cursor must use the form fid:<integer>")
+            try:
+                cursor_fid = int(value)
+            except ValueError as exc:
+                raise ValueError("cursor must use the form fid:<integer>") from exc
+            if order_by not in {None, "$id"}:
+                raise ValueError("FID cursors require order_by=$id")
+            order_by = "$id"
         field_names = list(fields) if fields else [field.name() for field in target.fields()]
         unknown = [name for name in field_names if target.fields().indexOf(name) < 0]
         if unknown:
             raise ValueError("Unknown fields: {}".format(", ".join(unknown)))
         request = QgsFeatureRequest()
+        filters = []
         if expression:
-            parsed = QgsExpression(expression)
+            parsed = QgsExpression(str(expression))
             if parsed.hasParserError():
                 raise ValueError("Invalid QGIS expression: {}".format(parsed.parserErrorString()))
-            request.setFilterExpression(expression)
+            filters.append("({})".format(expression))
+        if cursor_fid is not None:
+            operator = "<" if descending else ">"
+            filters.append("$id {} {}".format(operator, cursor_fid))
+        selected_filter_fids = None
         if selected_only:
-            request.setFilterFids(target.selectedFeatureIds())
+            selected_fids = list(target.selectedFeatureIds())
+            if filters:
+                filters.append(
+                    "$id IN ({})".format(
+                        ",".join(str(int(feature_id)) for feature_id in selected_fids)
+                    )
+                    if selected_fids
+                    else "FALSE"
+                )
+            else:
+                selected_filter_fids = selected_fids
+        if filters:
+            request.setFilterExpression(" AND ".join(filters))
+        elif selected_filter_fids is not None:
+            request.setFilterFids(selected_filter_fids)
+        if bbox is not None:
+            if not isinstance(bbox, (list, tuple)) or len(bbox) != 4:
+                raise ValueError("bbox must contain xmin, ymin, xmax, ymax")
+            xmin, ymin, xmax, ymax = (float(value) for value in bbox)
+            if xmin > xmax or ymin > ymax:
+                raise ValueError("bbox minimums must not exceed maximums")
+            request.setFilterRect(QgsRectangle(xmin, ymin, xmax, ymax))
         request.setSubsetOfAttributes(field_names, target.fields())
         if not include_geometry:
             request.setFlags(QgsFeatureRequest.Flag.NoGeometry)
+        if order_by is not None:
+            order_by = str(order_by)
+            if order_by == "$id":
+                order_expression = "$id"
+            elif target.fields().indexOf(order_by) >= 0:
+                order_expression = QgsExpression.quotedColumnRef(order_by)
+            else:
+                raise ValueError("Unknown order_by field: {}".format(order_by))
+            request.addOrderBy(order_expression, not bool(descending))
         if hasattr(request, "setOffset"):
             request.setLimit(limit + 1)
             request.setOffset(offset)
@@ -610,19 +737,45 @@ class Dispatcher:
                 next(iterator, None)
         selected_fields = [target.fields().field(name) for name in field_names]
         items = []
+        returned_bytes = 0
+        truncated_by_bytes = False
+        has_more = False
         for feature in iterator:
-            items.append(feature_summary(feature, selected_fields, include_geometry))
-            if len(items) > limit:
+            if len(items) >= limit:
+                has_more = True
                 break
-        has_more = len(items) > limit
-        return {
+            item = feature_summary(feature, selected_fields, include_geometry)
+            item_bytes = len(
+                json.dumps(item, ensure_ascii=False, separators=(",", ":"), default=str).encode(
+                    "utf-8"
+                )
+            )
+            if items and returned_bytes + item_bytes > max_bytes:
+                has_more = True
+                truncated_by_bytes = True
+                break
+            items.append(item)
+            returned_bytes += item_bytes
+        result = {
             "layer_id": target.id(),
             "offset": offset,
             "limit": limit,
-            "items": items[:limit],
+            "items": items,
             "has_more": has_more,
-            "feature_count": target.featureCount(),
+            "next_cursor": (
+                "fid:{}".format(items[-1]["id"])
+                if has_more and items and order_by == "$id"
+                else None
+            ),
+            "order_by": order_by,
+            "descending": bool(descending),
+            "returned_bytes": returned_bytes,
+            "max_bytes": max_bytes,
+            "truncated_by_bytes": truncated_by_bytes,
+            "feature_count": target.featureCount() if include_total_count else None,
+            "total_count_included": bool(include_total_count),
         }
+        return result
 
     def selection_set(
         self, layer, mode="replace", feature_ids=None, expression=None
@@ -771,10 +924,19 @@ class Dispatcher:
         return {"result": json_safe(result)}
 
     def processing_start(
-        self, algorithm, parameters, retain_outputs=True, add_to_project=False
+        self,
+        algorithm,
+        parameters,
+        retain_outputs=True,
+        add_to_project=False,
+        allow_main_thread=False,
     ):
         return self.operations.start_processing(
-            algorithm, parameters, retain_outputs, add_to_project
+            algorithm,
+            parameters,
+            retain_outputs,
+            add_to_project,
+            allow_main_thread,
         )
 
     def operation_control(self, operation_id, action="status"):
@@ -848,6 +1010,8 @@ class Dispatcher:
             "height": pixmap.height(),
             "target": target,
             "revision": self.state.revision,
+            "sha256": hashlib.sha256(raw).hexdigest(),
+            "structural_image_analysis": _image_structure(pixmap),
         }
         if as_artifact:
             result["artifact"] = self.artifacts.put_bytes(
@@ -890,6 +1054,7 @@ class Dispatcher:
         y_field=None,
         delimiter=",",
         crs="EPSG:4326",
+        timeout_seconds=30,
     ):
         return self.data.fetch(
             url=url,
@@ -905,6 +1070,7 @@ class Dispatcher:
             y_field=y_field,
             delimiter=delimiter,
             crs=crs,
+            timeout_seconds=timeout_seconds,
         )
 
     def data_service(
@@ -945,7 +1111,39 @@ class Dispatcher:
         return self.layer_manager.execute(**params)
 
     def cartography_style(self, layer, **params):
-        return self.cartography.style(self._layer(layer), **params)
+        target = self._layer(layer)
+        if not isinstance(target, QgsRasterLayer):
+            return self.cartography.style(target, **params)
+        mode = str(params.pop("mode", "simple"))
+        interpolation = params.pop("interpolation", "linear")
+        action = {
+            "simple": "single_band_gray",
+            "categorized": "pseudocolor",
+            "graduated": "pseudocolor",
+            "single_band_gray": "single_band_gray",
+            "multiband_color": "multiband_color",
+            "pseudocolor": "pseudocolor",
+            "set_opacity": "set_opacity",
+        }.get(mode)
+        if action is None:
+            raise ValueError("Unsupported raster style mode")
+        if mode == "categorized":
+            interpolation = "discrete"
+        allowed = {
+            "band",
+            "red_band",
+            "green_band",
+            "blue_band",
+            "opacity",
+            "minimum",
+            "maximum",
+            "color_ramp",
+        }
+        raster_params = {key: value for key, value in params.items() if key in allowed}
+        raster_params["interpolation"] = interpolation
+        return self.specialized_data_tools.raster_style(
+            target.id(), action=action, **raster_params
+        )
 
     def cartography_labels(self, layer, **params):
         return self.cartography.labels(self._layer(layer), **params)
@@ -1063,6 +1261,15 @@ class Dispatcher:
                     "message": "The canvas was still drawing when the image was captured.",
                 }
             )
+        image_structure = capture.get("structural_image_analysis") or {}
+        if image_structure.get("likely_blank"):
+            automated.append(
+                {
+                    "severity": "error",
+                    "code": "capture.likely_blank",
+                    "message": "The captured image has near-zero sampled visual variance.",
+                }
+            )
         if layout_check:
             automated.extend(
                 {
@@ -1090,8 +1297,9 @@ class Dispatcher:
                     "Check geographic framing, empty space and whether important features are hidden.",
                 ],
                 "next_action": (
-                    "Inspect the image content. Record a passing verdict, or call action=apply "
-                    "with bounded correction_calls and review the returned image again."
+                    "The MCP response includes image content for vision-capable clients and "
+                    "structural_image_analysis for text-only clients. Record a verdict only "
+                    "after visual inspection; structural checks alone cannot certify aesthetics."
                 ),
             }
         )
@@ -1136,14 +1344,17 @@ class Dispatcher:
             raise RuntimeError("Could not encode the layout review image")
         import base64
 
+        raw = bytes(buffer.data())
         return {
-            "data": base64.b64encode(bytes(buffer.data())).decode("ascii"),
+            "data": base64.b64encode(raw).decode("ascii"),
             "mime_type": "image/png",
             "width": image.width(),
             "height": image.height(),
             "target": "layout:{}".format(layout),
             "page": int(page),
             "revision": self.state.revision,
+            "sha256": hashlib.sha256(raw).hexdigest(),
+            "structural_image_analysis": _image_structure(image),
         }
 
     def fire_map(self, **params):
@@ -1153,20 +1364,23 @@ class Dispatcher:
         return {"connectors": [self.fire_maps.catalog()]}
 
     def batch_execute(self, calls, continue_on_error=False, atomic=False):
-        if not isinstance(calls, list) or not 1 <= len(calls) <= 100:
-            raise ValueError("calls must contain between 1 and 100 items")
+        if not isinstance(calls, list) or not 1 <= len(calls) <= 25:
+            raise ValueError("calls must contain between 1 and 25 items")
         if any(not isinstance(call, dict) for call in calls):
             raise ValueError("Every batch call must be an object")
+        if any(call.get("method") == "batch.execute" for call in calls):
+            raise ValueError("Nested batches are not supported")
+        preflight = self.runtime_tools.preflight(calls)
+        if not preflight["valid"]:
+            raise ValueError("Batch preflight failed: {}".format(preflight["errors"]))
         checkpoint = None
-        if atomic:
+        if atomic and preflight["mutation_count"]:
             checkpoint = self.checkpoints.create("Atomic batch", internal=True)
         results = []
         rolled_back = False
         try:
-            for index, call in enumerate(calls[:100]):
+            for index, call in enumerate(calls):
                 method = call.get("method")
-                if method == "batch.execute":
-                    raise ValueError("Nested batches are not supported")
                 try:
                     results.append(
                         {
@@ -1185,7 +1399,7 @@ class Dispatcher:
                             },
                         }
                     )
-                    if atomic:
+                    if atomic and checkpoint:
                         self.checkpoints.restore(checkpoint["checkpoint_id"])
                         rolled_back = True
                     if atomic or not continue_on_error:
@@ -1199,6 +1413,10 @@ class Dispatcher:
             "requested": len(calls),
             "atomic": bool(atomic),
             "rolled_back": rolled_back,
+            "preflight": preflight,
+            "checkpoint_strategy": (
+                "qgz" if checkpoint else "none_read_only" if atomic else "none"
+            ),
         }
 
     def runtime_control(self, **params):
@@ -1417,39 +1635,27 @@ class Dispatcher:
     def qa_self_test(self):
         return self.qa_tools.self_test()
 
-    def resources_list(self):
-        resources = [
+    def resources_list(self, cursor=None, limit=100):
+        canonical = [
             _resource(SESSION_URI, "Current QGIS session", self.state),
             _resource(PROJECT_URI, "Current QGIS project", self.state),
             _resource(LAYER_TREE_URI, "Current project layer tree", self.state),
             _resource(CAPABILITIES_URI, "QGIS capability index", self.state),
             _resource(LOGS_URI, "Recent QGIS MCP events", self.state),
         ]
+        dynamic = []
         for layer in QgsProject.instance().mapLayers().values():
-            resources.extend(
-                [
-                    {
-                        "uri": layer_uri(layer.id()),
-                        "name": "Layer: {}".format(layer.name()),
-                        "mimeType": "application/json",
-                        "revision": self.state.resource_revision(layer_uri(layer.id())),
-                    },
-                    {
-                        "uri": layer_uri(layer.id(), "schema"),
-                        "name": "Layer schema: {}".format(layer.name()),
-                        "mimeType": "application/json",
-                        "revision": self.state.resource_revision(layer_uri(layer.id(), "schema")),
-                    },
-                    {
-                        "uri": layer_uri(layer.id(), "selection"),
-                        "name": "Layer selection: {}".format(layer.name()),
-                        "mimeType": "application/json",
-                        "revision": self.state.resource_revision(layer_uri(layer.id(), "selection")),
-                    },
-                ]
+            dynamic.append(
+                {
+                    "uri": layer_uri(layer.id()),
+                    "name": "Layer: {}".format(layer.name()[:200]),
+                    "description": "Use the layer resource template for schema or selection views.",
+                    "mimeType": "application/json",
+                    "revision": self.state.resource_revision(layer_uri(layer.id())),
+                }
             )
         for operation in self.operations.list_public():
-            resources.append(
+            dynamic.append(
                 {
                     "uri": operation_uri(operation["id"]),
                     "name": "Operation: {}".format(operation["id"]),
@@ -1461,23 +1667,29 @@ class Dispatcher:
         for layer in self.operations.retained_layers():
             if layer.id() in known_layer_ids:
                 continue
-            resources.extend(
-                [
-                    {
-                        "uri": layer_uri(layer.id()),
-                        "name": "Retained output layer: {}".format(layer.name()),
-                        "mimeType": "application/json",
-                        "revision": self.state.resource_revision(layer_uri(layer.id())),
-                    },
-                    {
-                        "uri": layer_uri(layer.id(), "schema"),
-                        "name": "Retained output schema: {}".format(layer.name()),
-                        "mimeType": "application/json",
-                        "revision": self.state.resource_revision(layer_uri(layer.id(), "schema")),
-                    },
-                ]
+            dynamic.append(
+                {
+                    "uri": layer_uri(layer.id()),
+                    "name": "Retained output layer: {}".format(layer.name()[:200]),
+                    "mimeType": "application/json",
+                    "revision": self.state.resource_revision(layer_uri(layer.id())),
+                }
             )
-        return resources
+        resources = canonical + sorted(dynamic, key=lambda item: item["uri"])
+        offset = 0
+        if cursor is not None:
+            match = re.fullmatch(r"qgis-resources:([0-9]+)", str(cursor))
+            if match is None:
+                raise ValueError("Invalid or stale resource pagination cursor")
+            offset = int(match.group(1))
+            if offset > len(resources):
+                raise ValueError("Resource pagination cursor is outside the result set")
+        limit = max(1, min(int(limit), 500))
+        page = resources[offset : offset + limit]
+        result = {"resources": page}
+        if offset + len(page) < len(resources):
+            result["next_cursor"] = "qgis-resources:{}".format(offset + len(page))
+        return result
 
     def resources_read(self, uri):
         parsed = urlparse(uri)
@@ -1522,6 +1734,61 @@ class Dispatcher:
         if not isinstance(layer, QgsVectorLayer):
             raise ValueError("Layer is not a vector layer")
         return layer
+
+
+def _image_structure(image):
+    qimage = image.toImage() if hasattr(image, "toImage") else image
+    if qimage.isNull() or qimage.width() <= 0 or qimage.height() <= 0:
+        return {"valid": False, "likely_blank": True, "sample_count": 0}
+    sample = qimage
+    if qimage.width() > 64:
+        sample = qimage.scaledToWidth(
+            64, Qt.TransformationMode.SmoothTransformation
+        )
+    if sample.height() > 64:
+        sample = sample.scaledToHeight(
+            64, Qt.TransformationMode.SmoothTransformation
+        )
+    luminances = []
+    alphas = []
+    colors = {}
+    for y in range(sample.height()):
+        for x in range(sample.width()):
+            color = sample.pixelColor(x, y)
+            red, green, blue, alpha = (
+                color.red(),
+                color.green(),
+                color.blue(),
+                color.alpha(),
+            )
+            luminances.append(
+                (0.2126 * red + 0.7152 * green + 0.0722 * blue) / 255.0
+            )
+            alphas.append(alpha / 255.0)
+            key = color.name(QColor.NameFormat.HexArgb)
+            colors[key] = colors.get(key, 0) + 1
+    count = len(luminances)
+    mean = sum(luminances) / count
+    variance = sum((value - mean) ** 2 for value in luminances) / count
+    dominant = sorted(colors.items(), key=lambda item: item[1], reverse=True)[:5]
+    standard_deviation = math.sqrt(variance)
+    return {
+        "valid": True,
+        "sample_width": sample.width(),
+        "sample_height": sample.height(),
+        "sample_count": count,
+        "unique_sampled_colors": len(colors),
+        "mean_luminance": round(mean, 6),
+        "luminance_standard_deviation": round(standard_deviation, 6),
+        "minimum_luminance": round(min(luminances), 6),
+        "maximum_luminance": round(max(luminances), 6),
+        "mean_alpha": round(sum(alphas) / count, 6),
+        "dominant_colors": [
+            {"color": color, "fraction": round(frequency / count, 6)}
+            for color, frequency in dominant
+        ],
+        "likely_blank": len(colors) <= 2 or standard_deviation < 0.003,
+    }
 
 
 def _tree_node(node):

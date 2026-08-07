@@ -11,12 +11,15 @@ import pytest
 from build_plugin import build_plugin
 from qgis_agent_mcp.onboarding import (
     MANAGED_BEGIN,
+    AntigravityConnector,
     ClaudeCodeConnector,
     CodexConnector,
     CommandResult,
     CommandRunner,
+    CursorConnector,
     LauncherSpec,
     OnboardingError,
+    OpenCodeConnector,
     RuntimeManager,
     universal_config,
 )
@@ -78,10 +81,11 @@ class FakeQProcess:
 
 
 def launcher_spec(tmp_path):
+    launcher = tmp_path / ".qgis-mcp" / "bin" / "qgis_mcp_launcher.py"
     return LauncherSpec(
         command=sys.executable,
-        args=(str(tmp_path / "launcher.py"),),
-        launcher_path=str(tmp_path / "launcher.py"),
+        args=(str(launcher),),
+        launcher_path=str(launcher),
         server_root=str(tmp_path / "_server"),
     )
 
@@ -128,6 +132,16 @@ def test_command_runner_pumps_events_while_waiting():
     assert pumps
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows command wrapper")
+def test_command_runner_supports_cmd_launchers_with_spaces(tmp_path):
+    launcher = tmp_path / "Unusual CLI Folder" / "claude.cmd"
+    launcher.parent.mkdir(parents=True)
+    launcher.write_text("@echo off\r\necho claude-ready\r\n", encoding="utf-8")
+    result = CommandRunner(process_factory=FakeQProcess).run([str(launcher)], timeout=5)
+    assert result.returncode == 0
+    assert result.stdout.strip() == "claude-ready"
+
+
 def test_codex_config_is_preserved_backed_up_and_idempotent(tmp_path):
     home = tmp_path / "home"
     config = home / ".codex" / "config.toml"
@@ -157,6 +171,42 @@ def test_codex_refuses_to_overwrite_unmanaged_qgis_entry(tmp_path):
     )
     with pytest.raises(OnboardingError, match="not created by this plugin"):
         CodexConnector(home=home).install(launcher_spec(tmp_path))
+
+
+def test_codex_honors_custom_home_and_unusual_unicode_paths(monkeypatch, tmp_path):
+    codex_home = tmp_path / "Custom Codex Ω" / "configuration"
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+    spec = LauncherSpec(
+        command=str(tmp_path / "Python Folder" / "python.exe"),
+        args=(str(tmp_path / "Zoë User" / "qgis_mcp_launcher.py"),),
+        launcher_path="unused",
+        server_root="unused",
+    )
+    connector = CodexConnector()
+    connector.install(spec)
+    text = (codex_home / "config.toml").read_text(encoding="utf-8")
+    assert "Zoë User" in text
+    assert "Python Folder" in text
+
+
+def test_codex_detects_single_quoted_qgis_table(tmp_path):
+    config = tmp_path / ".codex" / "config.toml"
+    config.parent.mkdir(parents=True)
+    config.write_text(
+        "[mcp_servers.'qgis']\ncommand = 'another-server'\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(OnboardingError, match="not created by this plugin"):
+        CodexConnector(home=tmp_path).install(launcher_spec(tmp_path))
+
+
+def test_codex_reports_invalid_utf8_without_overwriting(tmp_path):
+    config = tmp_path / ".codex" / "config.toml"
+    config.parent.mkdir(parents=True)
+    config.write_bytes(b"\xff\xfe")
+    with pytest.raises(OnboardingError, match="not valid UTF-8"):
+        CodexConnector(home=tmp_path).install(launcher_spec(tmp_path))
+    assert config.read_bytes() == b"\xff\xfe"
 
 
 class FakeRunner:
@@ -211,6 +261,152 @@ def test_claude_connector_uses_user_scoped_stdio_configuration(tmp_path):
     assert sys.executable in add
 
 
+class ExistingClaudeRunner(FakeRunner):
+    def __init__(self, existing):
+        super().__init__()
+        self.existing = existing
+
+    def run(self, command, input_text=None, timeout=30):
+        self.commands.append(list(command))
+        if command[-1] == "--version":
+            return CommandResult(0, "2.1.0", "")
+        if "get" in command:
+            return CommandResult(0, self.existing, "")
+        return CommandResult(0, "ok", "")
+
+
+def test_claude_refuses_to_remove_unmanaged_existing_entry(tmp_path):
+    runner = ExistingClaudeRunner("command: another-mcp-server")
+    connector = ClaudeCodeConnector(executable="claude", runner=runner)
+    with pytest.raises(OnboardingError, match="not created by this plugin"):
+        connector.install(launcher_spec(tmp_path))
+    assert not any("remove" in command for command in runner.commands)
+
+
+def test_claude_repairs_only_recognized_managed_entry(tmp_path):
+    runner = ExistingClaudeRunner(
+        "command: python\nargs: C:\\Users\\A\\.qgis-mcp\\bin\\qgis_mcp_launcher.py"
+    )
+    connector = ClaudeCodeConnector(executable="claude", runner=runner)
+    connector.install(launcher_spec(tmp_path))
+    assert any("remove" in command for command in runner.commands)
+    assert any("add" in command for command in runner.commands)
+
+
+@pytest.mark.parametrize(
+    ("connector_class", "relative_path"),
+    [
+        (CursorConnector, Path(".cursor") / "mcp.json"),
+        (
+            AntigravityConnector,
+            Path(".gemini") / "config" / "mcp_config.json",
+        ),
+    ],
+)
+def test_json_connectors_preserve_config_backup_and_remove(
+    connector_class, relative_path, tmp_path
+):
+    config = tmp_path / relative_path
+    config.parent.mkdir(parents=True)
+    config.write_text(
+        json.dumps({"theme": "dark", "mcpServers": {"existing": {"command": "tool"}}}),
+        encoding="utf-8",
+    )
+    connector = connector_class(home=tmp_path)
+    connector.install(launcher_spec(tmp_path))
+    document = json.loads(config.read_text(encoding="utf-8"))
+    assert document["theme"] == "dark"
+    assert document["mcpServers"]["existing"]["command"] == "tool"
+    assert document["mcpServers"]["qgis"]["args"]
+    assert connector.status() == "configured"
+    assert list(config.parent.glob(config.name + ".qgis-mcp-*.bak"))
+    connector.remove()
+    document = json.loads(config.read_text(encoding="utf-8"))
+    assert "qgis" not in document["mcpServers"]
+    assert "existing" in document["mcpServers"]
+
+
+def test_json_connector_refuses_invalid_json_and_unmanaged_collision(tmp_path):
+    config = tmp_path / ".cursor" / "mcp.json"
+    config.parent.mkdir(parents=True)
+    config.write_text("{invalid", encoding="utf-8")
+    connector = CursorConnector(home=tmp_path)
+    with pytest.raises(OnboardingError, match="not valid JSON"):
+        connector.install(launcher_spec(tmp_path))
+    assert config.read_text(encoding="utf-8") == "{invalid"
+
+    config.write_text(
+        json.dumps({"mcpServers": {"qgis": {"command": "another-server"}}}),
+        encoding="utf-8",
+    )
+    with pytest.raises(OnboardingError, match="not created by this plugin"):
+        connector.install(launcher_spec(tmp_path))
+
+
+def test_antigravity_keeps_existing_legacy_location(tmp_path):
+    legacy = tmp_path / ".gemini" / "antigravity" / "mcp_config.json"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_text("{}", encoding="utf-8")
+    connector = AntigravityConnector(home=tmp_path)
+    assert connector.config_path == legacy
+    connector.install(launcher_spec(tmp_path))
+    assert "qgis" in json.loads(legacy.read_text(encoding="utf-8"))["mcpServers"]
+
+
+def test_antigravity_detects_existing_ide_specific_location(tmp_path):
+    ide_config = tmp_path / ".gemini" / "antigravity-ide" / "mcp_config.json"
+    ide_config.parent.mkdir(parents=True)
+    ide_config.write_text("{}", encoding="utf-8")
+    connector = AntigravityConnector(home=tmp_path)
+    assert connector.config_path == ide_config
+    assert str(ide_config) in connector.manual_help()
+
+
+def test_opencode_connector_uses_native_schema_and_preserves_config(tmp_path):
+    config = tmp_path / ".config" / "opencode" / "opencode.json"
+    config.parent.mkdir(parents=True)
+    config.write_text(
+        json.dumps({"theme": "qgis", "mcp": {"existing": {"type": "remote"}}}),
+        encoding="utf-8",
+    )
+    connector = OpenCodeConnector(home=tmp_path)
+    connector.install(launcher_spec(tmp_path))
+    document = json.loads(config.read_text(encoding="utf-8"))
+    assert document["theme"] == "qgis"
+    assert document["mcp"]["existing"]["type"] == "remote"
+    server = document["mcp"]["qgis"]
+    assert server["type"] == "local"
+    assert server["enabled"] is True
+    assert server["command"][0] == sys.executable
+    assert server["command"][1].endswith("qgis_mcp_launcher.py")
+    assert connector.status() == "configured"
+    connector.remove()
+    assert "qgis" not in json.loads(config.read_text(encoding="utf-8"))["mcp"]
+
+
+def test_opencode_honors_custom_config_and_protects_unmanaged_entry(
+    monkeypatch, tmp_path
+):
+    config = tmp_path / "OpenCode Custom" / "settings.json"
+    config.parent.mkdir(parents=True)
+    config.write_text(
+        json.dumps({"mcp": {"qgis": {"type": "local", "command": ["other"]}}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("OPENCODE_CONFIG", str(config))
+    connector = OpenCodeConnector()
+    assert connector.config_path == config
+    with pytest.raises(OnboardingError, match="not created by this plugin"):
+        connector.install(launcher_spec(tmp_path))
+
+
+def test_opencode_manual_config_matches_documented_local_format(tmp_path):
+    value = json.loads(OpenCodeConnector.manual_config(launcher_spec(tmp_path)))
+    server = value["mcp"]["qgis"]
+    assert server["type"] == "local"
+    assert server["command"][0] == sys.executable
+
+
 def test_universal_configuration_is_standard_stdio_json(tmp_path):
     value = json.loads(universal_config(launcher_spec(tmp_path)))
     server = value["mcpServers"]["qgis"]
@@ -232,5 +428,5 @@ def test_plugin_zip_contains_bundled_server_and_no_markdown(tmp_path):
     assert not any(name.casefold().endswith(".md") for name in names)
     assert not any("__pycache__" in name for name in names)
     assert "qgisMinimumVersion=3.44" in metadata
-    assert "qgisMaximumVersion=3.99" in metadata
+    assert "qgisMaximumVersion=4.99" in metadata
     assert "experimental=False" in metadata

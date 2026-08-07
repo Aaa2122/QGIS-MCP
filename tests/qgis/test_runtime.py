@@ -12,7 +12,14 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 import qgis.utils
-from qgis.core import QgsApplication, QgsProcessing, QgsProject, QgsVectorLayer
+from qgis.core import (
+    QgsApplication,
+    QgsFeature,
+    QgsProcessing,
+    QgsProject,
+    QgsRasterLayer,
+    QgsVectorLayer,
+)
 from qgis.PyQt.QtCore import QCoreApplication, QEventLoop, QProcess, QProcessEnvironment
 from qgis_agent_mcp.autonomy import DataCache, NetworkPolicy
 from qgis_agent_mcp.dispatcher import DispatchError
@@ -52,7 +59,7 @@ class QgisRuntimeTest(unittest.TestCase):
                     "id": 1,
                     "method": "initialize",
                     "params": {
-                        "protocolVersion": "2025-06-18",
+                        "protocolVersion": "2025-11-25",
                         "clientInfo": {"name": "qgis-ltr-smoke", "version": "1"},
                     },
                 },
@@ -128,7 +135,7 @@ class QgisRuntimeTest(unittest.TestCase):
             )
             deadline = time.monotonic() + 20
             while time.monotonic() < deadline:
-                QCoreApplication.processEvents(QEventLoop.AllEvents, 50)
+                QCoreApplication.processEvents(QEventLoop.ProcessEventsFlag.AllEvents, 50)
                 operation = dispatcher.operation_control(operation["id"])
                 if operation["status"] not in {"queued", "running", "cancelling"}:
                     break
@@ -285,7 +292,7 @@ class QgisRuntimeTest(unittest.TestCase):
                 "workflow.execute", {"action": "inspect", "workflow_id": workflow_id}
             )
             self.assertEqual(inspected["run_count"], 1)
-            self.assertTrue(inspected["resume_on_restart"])
+            self.assertFalse(inspected["resume_on_restart"])
             self.assertIsNone(inspected["active_run_id"])
             self.assertRegex(inspected["last_run_id"], r"^[0-9a-f]{32}$")
             self.assertIsNotNone(QgsProject.instance().layerTreeRoot().findGroup("durable-test-group"))
@@ -342,7 +349,7 @@ class QgisRuntimeTest(unittest.TestCase):
             result = health_check(
                 spec,
                 event_pump=lambda: QCoreApplication.processEvents(
-                    QEventLoop.ExcludeUserInputEvents, 25
+                    QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents, 25
                 ),
             )
             self.assertIn("revision", result)
@@ -666,7 +673,7 @@ class QgisRuntimeTest(unittest.TestCase):
             deadline = time.monotonic() + 25
             statuses = {}
             while time.monotonic() < deadline:
-                QCoreApplication.processEvents(QEventLoop.AllEvents, 50)
+                QCoreApplication.processEvents(QEventLoop.ProcessEventsFlag.AllEvents, 50)
                 statuses = {
                     operation_id: dispatcher.operation_control(operation_id)
                     for operation_id in operation_ids
@@ -858,6 +865,12 @@ class QgisRuntimeTest(unittest.TestCase):
             self.assertIn("connections", gps)
             views = dispatcher.dispatch("ecosystem.3d", {"action": "list"})
             self.assertIn("views", views)
+            if sys.platform == "win32":
+                self.assertTrue(views["creation"]["programmatic_supported"])
+                self.assertEqual(
+                    views["creation"]["windows_qgis_344_route"],
+                    "queued_cpp_slot_qwindow",
+                )
             server = dispatcher.dispatch("ecosystem.server", {"action": "validate"})
             self.assertIn("valid", server)
             offline = dispatcher.dispatch("ecosystem.offline", {"action": "status"})
@@ -972,6 +985,277 @@ class QgisRuntimeTest(unittest.TestCase):
         health = dispatcher.dispatch("qa.self_test", {})
         self.assertTrue(health["ok"], health)
 
+    def test_19_raster_point_cloud_processing_and_visual_regressions(self):
+        import processing
+
+        dispatcher = qgis.utils.plugins["qgis_agent_mcp"].dispatcher
+        catalog = dispatcher.dispatch("data.catalog", {})
+        self.assertIn(".laz", catalog["downloads"])
+        self.assertEqual(catalog["point_clouds"]["provider"], "pdal")
+        self.assertEqual(
+            catalog["point_clouds"]["processing_filter"]["algorithm"],
+            "pdal:filter",
+        )
+        self.assertEqual(
+            len(
+                catalog["point_clouds"]["pdal_cli_compatibility"][
+                    "known_constraints"
+                ]
+            ),
+            4,
+        )
+        with tempfile.TemporaryDirectory(prefix="qgis-mcp-raster-") as directory:
+            source_path = Path(directory) / "source.tif"
+            processing.run(
+                "native:createconstantrasterlayer",
+                {
+                    "EXTENT": "0,10,0,10",
+                    "TARGET_CRS": "EPSG:2154",
+                    "PIXEL_SIZE": 1,
+                    "NUMBER": 5,
+                    "OUTPUT_TYPE": 5,
+                    "CREATION_OPTIONS": "",
+                    "OUTPUT": str(source_path),
+                },
+            )
+            raster = QgsRasterLayer(str(source_path), "raster-style-regression", "gdal")
+            self.assertTrue(raster.isValid())
+            QgsProject.instance().addMapLayer(raster)
+            try:
+                gray = dispatcher.dispatch(
+                    "cartography.style",
+                    {"layer": raster.id(), "mode": "single_band_gray"},
+                )
+                self.assertEqual(gray["renderer_class"], "QgsSingleBandGrayRenderer")
+                self.assertIsNone(gray["renderer"]["dump"])
+                pseudo = dispatcher.dispatch(
+                    "raster.style",
+                    {
+                        "layer": raster.id(),
+                        "action": "pseudocolor",
+                        "color_ramp": "terrain",
+                    },
+                )
+                self.assertEqual(
+                    pseudo["renderer_class"], "QgsSingleBandPseudoColorRenderer"
+                )
+                self.assertIsNone(pseudo["renderer"]["dump"])
+                crs = dispatcher.dispatch(
+                    "crs.control", {"action": "assign_layer", "layer": raster.id()}
+                )
+                self.assertFalse(crs["assignment"]["changed"])
+                screenshot = dispatcher.ui_screenshot(max_width=128)
+                self.assertTrue(screenshot["structural_image_analysis"]["valid"])
+                self.assertEqual(len(screenshot["sha256"]), 64)
+                if sys.platform == "win32":
+                    requested_name = "MCP queued C++ 3D regression"
+                    created_view = dispatcher.dispatch(
+                        "ecosystem.3d",
+                        {
+                            "action": "create",
+                            "name": requested_name,
+                            "scene_mode": "local",
+                            "background_color": "#203040",
+                            "show_labels": False,
+                        },
+                    )
+                    self.assertTrue(created_view["queued"])
+                    self.assertEqual(
+                        created_view["creation_route"], "queued_cpp_slot_qwindow"
+                    )
+                    deadline = time.monotonic() + 30
+                    listed_views = []
+                    while time.monotonic() < deadline:
+                        QCoreApplication.processEvents(QEventLoop.ProcessEventsFlag.AllEvents, 50)
+                        listed = dispatcher.dispatch(
+                            "ecosystem.3d", {"action": "list"}
+                        )
+                        listed_views = listed["views"]
+                        if any(
+                            requested_name in item["aliases"]
+                            for item in listed_views
+                        ):
+                            break
+                        time.sleep(0.02)
+                    created_summary = next(
+                        item
+                        for item in listed_views
+                        if requested_name in item["aliases"]
+                    )
+                    self.assertEqual(
+                        created_summary["background_color"], "#ff203040"
+                    )
+                    configured_view = dispatcher.dispatch(
+                        "ecosystem.3d",
+                        {
+                            "action": "configure",
+                            "name": requested_name,
+                            "movement_speed": 7,
+                        },
+                    )
+                    self.assertEqual(configured_view["movement_speed"], 7)
+                    closed_view = dispatcher.dispatch(
+                        "ecosystem.3d",
+                        {"action": "close", "name": requested_name},
+                    )
+                    self.assertEqual(closed_view["closed"], created_summary["name"])
+            finally:
+                QgsProject.instance().removeMapLayer(raster.id())
+
+            output_path = Path(directory) / "processing-output.tif"
+            operation = dispatcher.processing_start(
+                "native:createconstantrasterlayer",
+                {
+                    "EXTENT": "0,10,0,10",
+                    "TARGET_CRS": "EPSG:2154",
+                    "PIXEL_SIZE": 1,
+                    "NUMBER": 9,
+                    "OUTPUT_TYPE": 5,
+                    "CREATION_OPTIONS": "",
+                    "OUTPUT": str(output_path),
+                },
+                add_to_project=True,
+                allow_main_thread=True,
+            )
+            deadline = time.monotonic() + 20
+            while time.monotonic() < deadline:
+                QCoreApplication.processEvents(
+                    QEventLoop.ProcessEventsFlag.AllEvents, 50
+                )
+                operation = dispatcher.operation_control(operation["id"])
+                if operation["status"] not in {"queued", "running", "cancelling"}:
+                    break
+                time.sleep(0.02)
+            self.assertEqual(operation["status"], "succeeded", operation)
+            retained = operation["retained_outputs"]["OUTPUT"]
+            self.assertEqual(retained["ownership"], "project")
+            self.assertTrue(retained["added_to_project"])
+            loaded = QgsProject.instance().mapLayer(retained["layer_id"])
+            self.assertIsNotNone(loaded)
+            try:
+                from qgis_agent_mcp.operations import (
+                    _file_fingerprint,
+                    _validate_processing_result,
+                )
+
+                current_fingerprint = _file_fingerprint(output_path)
+                false_success = _validate_processing_result(
+                    {
+                        "feedback_log": "Permission denied (WinError 32)",
+                        "_output_targets": {"OUTPUT": output_path},
+                        "_output_baseline": {"OUTPUT": current_fingerprint},
+                    },
+                    {"OUTPUT": str(output_path)},
+                )
+                self.assertFalse(false_success["passed"])
+                self.assertIn(
+                    "output.unchanged",
+                    {item["code"] for item in false_success["issues"]},
+                )
+                with self.assertRaises(DispatchError) as raised:
+                    dispatcher.dispatch(
+                        "processing.start",
+                        {
+                            "algorithm": "native:createconstantrasterlayer",
+                            "parameters": {
+                                "EXTENT": "0,10,0,10",
+                                "TARGET_CRS": "EPSG:2154",
+                                "PIXEL_SIZE": 1,
+                                "NUMBER": 10,
+                                "OUTPUT_TYPE": 5,
+                                "CREATION_OPTIONS": "",
+                                "OUTPUT": str(output_path),
+                            },
+                            "add_to_project": True,
+                            "allow_main_thread": True,
+                        },
+                    )
+                self.assertIn("currently loaded", raised.exception.message)
+            finally:
+                QgsProject.instance().removeMapLayer(retained["layer_id"])
+                loaded = None
+                QCoreApplication.processEvents(QEventLoop.ProcessEventsFlag.AllEvents, 50)
+
+    def test_20_v045_incremental_state_and_cursor_queries(self):
+        dispatcher = qgis.utils.plugins["qgis_agent_mcp"].dispatcher
+        layer = QgsVectorLayer(
+            "Point?crs=EPSG:4326&field=name:string&field=value:integer",
+            "v045-query",
+            "memory",
+        )
+        features = []
+        for index in range(5):
+            feature = QgsFeature(layer.fields())
+            feature.setAttributes(["feature-{}".format(index), index])
+            features.append(feature)
+        self.assertTrue(layer.dataProvider().addFeatures(features))
+        QgsProject.instance().addMapLayer(layer)
+        try:
+            summary = dispatcher.dispatch(
+                "session.snapshot", {"detail": "summary"}
+            )
+            item = next(
+                entry for entry in summary["layers"] if entry["id"] == layer.id()
+            )
+            self.assertNotIn("feature_count", item)
+            self.assertNotIn("extent", item)
+
+            baseline = dispatcher.state.revision
+            layer.setName("v045-query-renamed")
+            incremental = dispatcher.dispatch(
+                "session.snapshot",
+                {"detail": "summary", "since_revision": baseline},
+            )
+            self.assertTrue(incremental["incremental"])
+            self.assertEqual([entry["id"] for entry in incremental["layers"]], [layer.id()])
+            self.assertFalse(incremental["resource_revisions_complete"])
+            self.assertTrue(
+                all(
+                    revision > baseline
+                    for revision in incremental["resource_revisions"].values()
+                )
+            )
+
+            resources = dispatcher.dispatch("resources.list", {"limit": 200})
+            layer_resources = [
+                resource
+                for resource in resources["resources"]
+                if resource["uri"].startswith("qgis://layers/{}".format(layer.id()))
+            ]
+            self.assertEqual(len(layer_resources), 1)
+
+            first = dispatcher.dispatch(
+                "feature.query",
+                {
+                    "layer": layer.id(),
+                    "fields": ["name"],
+                    "limit": 2,
+                    "order_by": "$id",
+                    "include_total_count": False,
+                },
+            )
+            self.assertIsNone(first["feature_count"])
+            self.assertTrue(first["has_more"])
+            self.assertTrue(first["next_cursor"].startswith("fid:"))
+            second = dispatcher.dispatch(
+                "feature.query",
+                {
+                    "layer": layer.id(),
+                    "fields": ["name"],
+                    "limit": 2,
+                    "cursor": first["next_cursor"],
+                },
+            )
+            first_ids = {item["id"] for item in first["items"]}
+            self.assertTrue(first_ids.isdisjoint(item["id"] for item in second["items"]))
+            counted = dispatcher.dispatch(
+                "feature.query",
+                {"layer": layer.id(), "limit": 1, "include_total_count": True},
+            )
+            self.assertEqual(counted["feature_count"], 5)
+        finally:
+            QgsProject.instance().removeMapLayer(layer.id())
+
 
 def _rpc(process, request, timeout_ms=15000):
     process.write((json.dumps(request, separators=(",", ":")) + "\n").encode("utf-8"))
@@ -979,7 +1263,7 @@ def _rpc(process, request, timeout_ms=15000):
     deadline = time.monotonic() + timeout_ms / 1000
     buffered = bytearray()
     while time.monotonic() < deadline:
-        QCoreApplication.processEvents(QEventLoop.AllEvents, 50)
+        QCoreApplication.processEvents(QEventLoop.ProcessEventsFlag.AllEvents, 50)
         process.waitForReadyRead(50)
         buffered.extend(bytes(process.readAllStandardOutput()))
         while b"\n" in buffered:
@@ -992,7 +1276,7 @@ def _rpc(process, request, timeout_ms=15000):
                 if "error" in response:
                     raise AssertionError(response["error"])
                 return response
-        if process.state() == QProcess.NotRunning:
+        if process.state() == QProcess.ProcessState.NotRunning:
             error = bytes(process.readAllStandardError()).decode("utf-8", "replace")
             raise AssertionError("MCP process exited early: " + error)
     error = bytes(process.readAllStandardError()).decode("utf-8", "replace")
