@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import time
 from collections.abc import Awaitable, Callable
@@ -10,6 +11,7 @@ from typing import Any
 from .config import ConnectionInfo, load_connection_info
 from .errors import BRIDGE_ERROR, BRIDGE_UNAVAILABLE, RpcError
 
+LOGGER = logging.getLogger(__name__)
 EventHandler = Callable[[dict[str, Any]], Awaitable[None] | None]
 MAX_BRIDGE_RESPONSE_BYTES = 32 * 1024 * 1024
 RETRYABLE_METHODS = {
@@ -254,6 +256,11 @@ class BridgeClient:
                 self._writer.write(encoded)
                 await self._writer.drain()
             return await asyncio.wait_for(future, timeout)
+        except asyncio.CancelledError:
+            self._pending.pop(request_id, None)
+            if method != "bridge.cancel" and self.connected:
+                asyncio.create_task(self._cancel_bridge_request(request_id))
+            raise
         except asyncio.TimeoutError as exc:
             self._pending.pop(request_id, None)
             raise RpcError(
@@ -261,6 +268,17 @@ class BridgeClient:
                 f"QGIS bridge request timed out: {method}",
                 {"method": method, "timeout_seconds": timeout},
             ) from exc
+
+    async def _cancel_bridge_request(self, request_id: int) -> None:
+        try:
+            await self._request_once(
+                "bridge.cancel",
+                {"request_id": request_id},
+                timeout=2,
+                connect=False,
+            )
+        except (asyncio.CancelledError, RpcError):
+            LOGGER.debug("Could not cancel queued QGIS bridge request %s", request_id)
 
     async def _read_loop(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter

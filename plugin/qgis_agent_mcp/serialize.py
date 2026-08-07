@@ -7,6 +7,7 @@ import math
 from qgis.core import (
     QgsFieldConstraints,
     QgsMapLayer,
+    QgsPointCloudLayer,
     QgsRasterLayer,
     QgsVectorLayer,
     QgsWkbTypes,
@@ -56,18 +57,30 @@ def extent_summary(extent):
     }
 
 
-def layer_summary(layer):
+def layer_summary(layer, detail="standard"):
     base = {
         "id": layer.id(),
         "name": layer.name(),
         "type": layer.type().name if hasattr(layer.type(), "name") else int(layer.type()),
         "valid": layer.isValid(),
         "provider": layer.providerType(),
-        "source": layer.publicSource() if hasattr(layer, "publicSource") else layer.source(),
         "crs": layer.crs().authid() if layer.crs().isValid() else None,
-        "extent": extent_summary(layer.extent()),
-        "opacity": layer.opacity(),
     }
+    if detail == "summary":
+        if isinstance(layer, QgsVectorLayer):
+            base["geometry_type"] = QgsWkbTypes.displayString(layer.wkbType())
+        elif isinstance(layer, QgsRasterLayer):
+            base["band_count"] = layer.bandCount()
+        return base
+    base.update(
+        {
+            "source": (
+                layer.publicSource() if hasattr(layer, "publicSource") else layer.source()
+            ),
+            "extent": extent_summary(layer.extent()),
+            "opacity": layer.opacity(),
+        }
+    )
     if isinstance(layer, QgsVectorLayer):
         base.update(
             {
@@ -85,6 +98,17 @@ def layer_summary(layer):
                 "width": layer.width(),
                 "height": layer.height(),
                 "band_count": layer.bandCount(),
+            }
+        )
+    elif isinstance(layer, QgsPointCloudLayer):
+        provider = layer.dataProvider()
+        point_count = getattr(provider, "pointCount", None)
+        base.update(
+            {
+                "point_count": point_count() if callable(point_count) else None,
+                "renderer_class": (
+                    type(layer.renderer()).__name__ if layer.renderer() is not None else None
+                ),
             }
         )
     return base
@@ -128,11 +152,33 @@ def renderer_summary(layer):
     renderer = layer.renderer() if hasattr(layer, "renderer") else None
     if renderer is None:
         return None
-    result = {"type": renderer.type(), "dump": renderer.dump()}
+    renderer_type = getattr(renderer, "type", None)
+    dump = getattr(renderer, "dump", None)
+    result = {
+        "type": renderer_type() if callable(renderer_type) else type(renderer).__name__,
+        "class": type(renderer).__name__,
+        # Vector renderers expose dump(), but raster renderers generally do not.
+        # Keep the field stable for MCP clients instead of raising AttributeError.
+        "dump": dump() if callable(dump) else None,
+    }
+    for key, method in (
+        ("opacity", "opacity"),
+        ("band", "inputBand"),
+        ("red_band", "redBand"),
+        ("green_band", "greenBand"),
+        ("blue_band", "blueBand"),
+    ):
+        candidate = getattr(renderer, method, None)
+        if callable(candidate):
+            try:
+                result[key] = json_safe(candidate())
+            except Exception:
+                result[key] = None
     try:
+        legend_items = getattr(renderer, "legendSymbolItems", None)
         result["legend_items"] = [
             {"label": item.label(), "rule_key": item.ruleKey()}
-            for item in renderer.legendSymbolItems()[:100]
+            for item in (legend_items()[:100] if callable(legend_items) else [])
         ]
     except Exception:
         result["legend_items"] = []

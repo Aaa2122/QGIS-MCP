@@ -244,3 +244,48 @@ async def test_non_idempotent_mutation_is_not_replayed_after_disconnect(monkeypa
         await client.close()
         server.shutdown()
         server.server_close()
+
+
+@pytest.mark.asyncio
+async def test_cancelled_client_request_cancels_the_queued_bridge_request():
+    token = "f" * 64
+    request_seen = threading.Event()
+    cancellation_seen = threading.Event()
+    received = {}
+
+    def handler(reader, writer):
+        hello = json.loads(reader.readline())
+        _write(
+            writer,
+            {"jsonrpc": "2.0", "id": hello["id"], "result": {"authenticated": True}},
+        )
+        original = json.loads(reader.readline())
+        received["original"] = original
+        request_seen.set()
+        cancellation = json.loads(reader.readline())
+        received["cancellation"] = cancellation
+        cancellation_seen.set()
+        _write(
+            writer,
+            {
+                "jsonrpc": "2.0",
+                "id": cancellation["id"],
+                "result": {"cancelled": True},
+            },
+        )
+
+    server, port = _start_bridge(handler)
+    client = BridgeClient(ConnectionInfo("127.0.0.1", port, token))
+    try:
+        pending = asyncio.create_task(client.request("session.snapshot"))
+        assert await asyncio.to_thread(request_seen.wait, 2)
+        pending.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await pending
+        assert await asyncio.to_thread(cancellation_seen.wait, 2)
+        assert received["cancellation"]["method"] == "bridge.cancel"
+        assert received["cancellation"]["params"]["request_id"] == received["original"]["id"]
+    finally:
+        await client.close()
+        server.shutdown()
+        server.server_close()

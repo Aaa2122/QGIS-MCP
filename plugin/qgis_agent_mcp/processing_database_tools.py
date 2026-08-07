@@ -56,9 +56,10 @@ class ProcessingDatabaseTools:
         retain_outputs=True,
         add_to_project=False,
         stop_on_error=False,
+        allow_main_thread=False,
     ):
-        if not isinstance(rows, list) or not 1 <= len(rows) <= 500:
-            raise ValueError("rows must contain between 1 and 500 parameter objects")
+        if not isinstance(rows, list) or not 1 <= len(rows) <= 50:
+            raise ValueError("rows must contain between 1 and 50 parameter objects")
         if any(not isinstance(row, dict) for row in rows):
             raise ValueError("Every batch row must be an object")
         registry = QgsApplication.processingRegistry()
@@ -72,6 +73,7 @@ class ProcessingDatabaseTools:
                     dict(parameters),
                     bool(retain_outputs),
                     bool(add_to_project),
+                    bool(allow_main_thread),
                 )
                 operations.append({"row": index, "operation": started})
             except Exception as exc:
@@ -110,6 +112,7 @@ class ProcessingDatabaseTools:
                 dict(source.get("parameters") or {}),
                 bool(source.get("retain_outputs", True)),
                 bool(source.get("add_to_project", False)),
+                bool(source.get("allow_main_thread", False)),
             )
             self.state.touch(
                 "processing.operation_replayed",
@@ -170,7 +173,14 @@ class ProcessingDatabaseTools:
         limit=1000,
         allow_mutation=False,
         new_name=None,
+        allow_blocking=False,
     ):
+        if action in {"query", "vacuum"} and not allow_blocking:
+            raise ValueError(
+                "This database action can block QGIS while the provider waits. "
+                "Retry with allow_blocking=true only when the connection is known "
+                "to be responsive."
+            )
         _, database = _database_connection(provider, connection)
         if action == "schemas":
             return {"provider": provider, "connection": connection, "schemas": list(database.schemas())}
@@ -204,6 +214,7 @@ class ProcessingDatabaseTools:
                 "fetched": min(len(rows), limit),
                 "execution_time_ms": result.queryExecutionTime(),
                 "mutation_allowed": bool(allow_mutation),
+                "blocking_opt_in": bool(allow_blocking),
             }
         if action == "create_schema":
             if not allow_mutation or not schema:

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 from qgis.core import (
     QgsColorRampShader,
     QgsContrastEnhancement,
@@ -133,8 +135,9 @@ class SpecializedDataTools:
             )
         elif action == "pseudocolor":
             _valid_band(target, band)
-            if not isinstance(color_ramp, list) or len(color_ramp) < 2:
-                raise ValueError("color_ramp requires at least two value/color items")
+            color_ramp = _raster_color_ramp(
+                provider, int(band), color_ramp, minimum, maximum
+            )
             shader = QgsColorRampShader()
             shader.setColorRampType(QgsColorRampShader.Type.Interpolated)
             if str(interpolation).casefold() == "discrete":
@@ -504,6 +507,49 @@ def _valid_band(layer, band):
     band = int(band)
     if band < 1 or band > layer.bandCount():
         raise ValueError("Invalid raster band")
+
+
+def _raster_color_ramp(provider, band, color_ramp, minimum, maximum):
+    presets = {
+        "blue": ["#eff3ff", "#bdd7e7", "#6baed6", "#3182bd", "#08519c"],
+        "green": ["#edf8e9", "#bae4b3", "#74c476", "#31a354", "#006d2c"],
+        "fire": ["#fff7bc", "#fec44f", "#fe9929", "#ec7014", "#cc4c02", "#8c2d04"],
+        "terrain": ["#276419", "#7fbc41", "#ffffbf", "#c2a875", "#8c510a"],
+    }
+    if isinstance(color_ramp, list):
+        if len(color_ramp) < 2:
+            raise ValueError("color_ramp requires at least two value/color items")
+        return color_ramp
+    preset = str(color_ramp or "blue").casefold()
+    if preset not in presets:
+        raise ValueError(
+            "color_ramp must be an explicit item array or a supported preset"
+        )
+    if minimum is None or maximum is None:
+        statistics = provider.bandStatistics(int(band))
+        if minimum is None:
+            minimum = statistics.minimumValue
+        if maximum is None:
+            maximum = statistics.maximumValue
+    minimum = float(minimum)
+    maximum = float(maximum)
+    if not math.isfinite(minimum) or not math.isfinite(maximum):
+        raise ValueError("Raster band statistics are not finite")
+    if maximum < minimum:
+        raise ValueError("maximum must be greater than or equal to minimum")
+    if maximum == minimum:
+        minimum -= 0.5
+        maximum += 0.5
+    colors = presets[preset]
+    step = (maximum - minimum) / (len(colors) - 1)
+    return [
+        {
+            "value": minimum + index * step,
+            "color": color,
+            "label": "{:.6g}".format(minimum + index * step),
+        }
+        for index, color in enumerate(colors)
+    ]
 
 
 def _date_time(value):
