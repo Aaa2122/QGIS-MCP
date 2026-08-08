@@ -78,6 +78,7 @@ SPECIALIZED_DATA_TOOLS = {
 }
 
 ECOSYSTEM_TOOLS = {
+    "qgis_plugin_advisor": "plugins.advise",
     "qgis_plugins": "ecosystem.plugins",
     "qgis_settings": "ecosystem.settings",
     "qgis_shortcuts": "ecosystem.shortcuts",
@@ -109,9 +110,21 @@ def test_entire_catalog_has_unique_complete_routes_and_reliability_controls():
     assert set(names) == set(TOOL_METHODS)
     for tool in TOOLS:
         assert tool["description"].strip()
+        assert tool["title"].strip()
+        assert tool["outputSchema"]["type"] == "object"
+        assert {
+            "readOnlyHint",
+            "destructiveHint",
+            "idempotentHint",
+            "openWorldHint",
+        } <= set(tool["annotations"])
         schema = tool["inputSchema"]
         assert schema["type"] == "object"
         assert schema["additionalProperties"] is False
+        assert all(
+            property_schema.get("description")
+            for property_schema in schema["properties"].values()
+        )
         if tool["name"] in _MUTATION_TOOLS:
             assert {
                 "idempotency_key",
@@ -159,6 +172,54 @@ def test_processing_database_tool_families_are_public_and_routed():
     } == PROCESSING_DATABASE_TOOLS
     for name in PROCESSING_DATABASE_TOOLS:
         assert by_name[name]["inputSchema"]["additionalProperties"] is False
+
+
+def test_stability_guards_are_exposed_in_tool_schemas():
+    by_name = {tool["name"]: tool for tool in TOOLS}
+    assert by_name["qgis_batch"]["inputSchema"]["properties"]["calls"]["maxItems"] == 25
+    assert by_name["qgis_workflow"]["inputSchema"]["properties"]["steps"]["maxItems"] == 25
+    assert (
+        by_name["qgis_workflow"]["inputSchema"]["properties"]["resume_on_restart"][
+            "default"
+        ]
+        is False
+    )
+    assert by_name["qgis_data_fetch"]["inputSchema"]["properties"][
+        "timeout_seconds"
+    ]["default"] == 30
+    assert by_name["qgis_processing_start"]["inputSchema"]["properties"][
+        "allow_main_thread"
+    ]["default"] is False
+    assert by_name["qgis_database"]["inputSchema"]["properties"][
+        "allow_blocking"
+    ]["default"] is False
+    feature_query = by_name["qgis_feature_query"]["inputSchema"]["properties"]
+    assert {"cursor", "order_by", "bbox", "include_total_count", "max_bytes"} <= set(
+        feature_query
+    )
+    assert feature_query["include_total_count"]["default"] is False
+    assert feature_query["max_bytes"]["default"] == 65536
+    assert feature_query["max_bytes"]["maximum"] == 1048576
+
+
+def test_point_cloud_raster_and_3d_repairs_are_exposed_in_schemas():
+    by_name = {tool["name"]: tool for tool in TOOLS}
+    project_actions = by_name["qgis_project_action"]["inputSchema"]["properties"][
+        "action"
+    ]["enum"]
+    assert "add_point_cloud" in project_actions
+    style = by_name["qgis_style_apply"]["inputSchema"]["properties"]
+    assert {"single_band_gray", "multiband_color", "pseudocolor"} <= set(
+        style["mode"]["enum"]
+    )
+    assert "oneOf" in style["color_ramp"]
+    raster_ramp = by_name["qgis_raster_style"]["inputSchema"]["properties"][
+        "color_ramp"
+    ]
+    assert "oneOf" in raster_ramp
+    assert by_name["qgis_3d_views"]["inputSchema"]["properties"]["scene_mode"][
+        "default"
+    ] == "local"
 
 
 def test_cartography_tool_families_are_public_and_routed():

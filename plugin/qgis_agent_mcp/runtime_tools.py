@@ -34,6 +34,7 @@ class RuntimeTools:
         mutation_methods,
         data_manager=None,
         layout_manager=None,
+        diagnostics=None,
     ):
         self.iface = iface
         self.state = state
@@ -44,6 +45,7 @@ class RuntimeTools:
         self.mutation_methods = mutation_methods
         self.data_manager = data_manager
         self.layout_manager = layout_manager
+        self.persistent_diagnostics = diagnostics
 
     def runtime(self, action="status"):
         if action == "status":
@@ -331,6 +333,10 @@ class RuntimeTools:
         }
         if include_logs:
             result["recent_errors"] = self.log.read(level="error", limit=50)["events"]
+        if self.persistent_diagnostics is not None:
+            result["persistent_diagnostics"] = self.persistent_diagnostics.snapshot()
+            if result["persistent_diagnostics"]["previous_interruption"]:
+                result["healthy"] = False
         return result
 
     def permissions(self):
@@ -346,7 +352,13 @@ class RuntimeTools:
                 "output_roots": [str(path) for path in getattr(output_policy, "roots", [])],
             },
             "credentials": "opaque_authcfg_references_only",
-            "plugin_installation": False,
+            "plugin_installation": {
+                "allowed": True,
+                "official_repository_only": True,
+                "proposal_required": True,
+                "explicit_user_confirmation_required": True,
+                "untrusted_plugins_require_extra_confirmation": True,
+            },
         }
 
     def auth(self, action="list", authcfg=None):

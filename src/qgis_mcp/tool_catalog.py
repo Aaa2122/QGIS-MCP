@@ -2,6 +2,166 @@ from __future__ import annotations
 
 from typing import Any
 
+_PROPERTY_DESCRIPTIONS = {
+    "action": "Action to perform.",
+    "algorithm": "Exact QGIS Processing algorithm ID.",
+    "arguments": "Arguments validated against the selected specialist tool schema.",
+    "fields": "Field names to include or operate on.",
+    "id": "Stable identifier of the target object.",
+    "layer": "Layer ID or exact layer name.",
+    "limit": "Maximum number of items to return.",
+    "max_bytes": "Maximum UTF-8 payload size returned inline.",
+    "name": "Human-readable name.",
+    "parameters": "Parameters validated against the selected QGIS Processing schema.",
+    "path": "Filesystem path.",
+    "query": "Search text; concise domain terms produce the best matches.",
+    "source": "Source URI or provider-specific data source string.",
+    "tool": "Exact specialist tool name returned by qgis_tools.",
+}
+
+_ACRONYMS = {
+    "api": "API",
+    "crs": "CRS",
+    "gps": "GPS",
+    "id": "ID",
+    "qgis": "QGIS",
+    "sql": "SQL",
+    "ui": "UI",
+    "wfs": "WFS",
+    "wms": "WMS",
+    "3d": "3D",
+}
+
+_OUTPUT_PROPERTIES = {
+    "qgis_batch": {
+        "results": {"type": "array"},
+        "outputs": {"type": "object"},
+        "completed": {"type": "integer"},
+        "requested": {"type": "integer"},
+        "rolled_back": {"type": "boolean"},
+    },
+    "qgis_capabilities_search": {
+        "query": {"type": "string"},
+        "results": {"type": "array"},
+        "truncated": {"type": "boolean"},
+    },
+    "qgis_diagnostics": {
+        "healthy": {"type": "boolean"},
+        "invalid_layers": {"type": "array"},
+        "failed_operations": {"type": "array"},
+    },
+    "qgis_feature_query": {
+        "layer_id": {"type": "string"},
+        "items": {"type": "array"},
+        "has_more": {"type": "boolean"},
+        "next_cursor": {"type": ["string", "null"]},
+        "returned_bytes": {"type": "integer"},
+    },
+    "qgis_operation": {
+        "id": {"type": "string"},
+        "status": {"type": "string"},
+        "progress": {"type": "number"},
+    },
+    "qgis_plugin_advisor": {
+        "native_matches": {"type": "array"},
+        "installed_matches": {"type": "array"},
+        "recommendations": {"type": "array"},
+        "catalog": {"type": "object"},
+    },
+    "qgis_processing_start": {
+        "id": {"type": "string"},
+        "status": {"type": "string"},
+        "progress": {"type": "number"},
+    },
+    "qgis_project_verify": {
+        "status": {"type": "string"},
+        "errors": {"type": "integer"},
+        "warnings": {"type": "integer"},
+        "issues": {"type": "array"},
+    },
+    "qgis_screenshot": {
+        "mime_type": {"type": "string"},
+        "width": {"type": "integer"},
+        "height": {"type": "integer"},
+        "sha256": {"type": "string"},
+    },
+    "qgis_session_snapshot": {
+        "revision": {"type": "integer"},
+        "incremental": {"type": "boolean"},
+        "project": {"type": "object"},
+        "layers": {"type": "array"},
+        "changes": {"type": "array"},
+    },
+    "qgis_visual_review": {
+        "target": {"type": "string"},
+        "revision": {"type": "integer"},
+        "automated_review": {"type": "object"},
+    },
+}
+
+
+def _title(name: str) -> str:
+    return " ".join(
+        _ACRONYMS.get(part, part.capitalize())
+        for part in name.split("_")
+    )
+
+
+def _describe_schema(schema: dict[str, Any]) -> None:
+    properties = schema.get("properties")
+    if isinstance(properties, dict):
+        for name, value in properties.items():
+            if not isinstance(value, dict):
+                continue
+            value.setdefault(
+                "description",
+                _PROPERTY_DESCRIPTIONS.get(
+                    name,
+                    "{} value.".format(name.replace("_", " ").capitalize()),
+                ),
+            )
+            _describe_schema(value)
+    items = schema.get("items")
+    if isinstance(items, dict):
+        _describe_schema(items)
+    for keyword in ("oneOf", "anyOf", "allOf"):
+        for option in schema.get(keyword, []):
+            if isinstance(option, dict):
+                _describe_schema(option)
+
+
+def enrich_tool_definition(
+    tool: dict[str, Any],
+    *,
+    mutation: bool,
+    destructive: bool = False,
+    open_world: bool = False,
+) -> dict[str, Any]:
+    """Add MCP 2025 metadata without repeating it in every catalog entry."""
+
+    schema = tool["inputSchema"]
+    _describe_schema(schema)
+    tool.setdefault("title", _title(tool["name"]))
+    tool.setdefault(
+        "outputSchema",
+        {
+            "type": "object",
+            "properties": _OUTPUT_PROPERTIES.get(tool["name"], {}),
+            "additionalProperties": True,
+        },
+    )
+    tool.setdefault(
+        "annotations",
+        {
+            "title": tool["title"],
+            "readOnlyHint": not mutation,
+            "destructiveHint": bool(destructive),
+            "idempotentHint": not mutation,
+            "openWorldHint": bool(open_world),
+        },
+    )
+    return tool
+
 
 def _object(properties: dict[str, Any], required: list[str] | None = None) -> dict[str, Any]:
     schema: dict[str, Any] = {
@@ -23,7 +183,7 @@ TOOLS: list[dict[str, Any]] = [
                 "detail": {
                     "type": "string",
                     "enum": ["summary", "standard", "full"],
-                    "default": "standard",
+                    "default": "summary",
                 },
                 "since_revision": {"type": "integer", "minimum": 0},
             }
@@ -44,7 +204,7 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "qgis_project_action",
-        "description": "Perform a common project or canvas mutation: save, add/remove a layer, set the active layer, zoom to a layer, refresh, or load a named layer style.",
+        "description": "Perform a common project or canvas mutation: save, add vector/raster/point-cloud data, remove a layer, set the active layer, zoom, refresh, or load a named style. LAS/LAZ and provider=pdal are always created as point-cloud layers.",
         "inputSchema": _object(
             {
                 "action": {
@@ -53,6 +213,7 @@ TOOLS: list[dict[str, Any]] = [
                         "save",
                         "add_vector",
                         "add_raster",
+                        "add_point_cloud",
                         "remove_layer",
                         "set_active_layer",
                         "zoom_layer",
@@ -89,7 +250,7 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "qgis_feature_query",
-        "description": "Query a bounded page of vector features in QGIS using an expression, selected-only mode, requested fields, and optional geometry summaries.",
+        "description": "Query a byte-bounded page of vector features using provider-side expressions, bbox filtering, deterministic ordering, FID cursors, requested fields, and optional geometry summaries or total counts.",
         "inputSchema": _object(
             {
                 "layer": {"type": "string"},
@@ -99,6 +260,22 @@ TOOLS: list[dict[str, Any]] = [
                 "include_geometry": {"type": "boolean", "default": False},
                 "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 100},
                 "offset": {"type": "integer", "minimum": 0, "default": 0},
+                "cursor": {"type": "string", "pattern": "^fid:-?[0-9]+$"},
+                "order_by": {"type": "string", "description": "Field name or $id."},
+                "descending": {"type": "boolean", "default": False},
+                "bbox": {
+                    "type": "array",
+                    "minItems": 4,
+                    "maxItems": 4,
+                    "items": {"type": "number"},
+                },
+                "include_total_count": {"type": "boolean", "default": False},
+                "max_bytes": {
+                    "type": "integer",
+                    "minimum": 1024,
+                    "maximum": 1048576,
+                    "default": 65536,
+                },
             },
             ["layer"],
         ),
@@ -199,6 +376,11 @@ TOOLS: list[dict[str, Any]] = [
                 "parameters": {"type": "object"},
                 "retain_outputs": {"type": "boolean", "default": True},
                 "add_to_project": {"type": "boolean", "default": False},
+                "allow_main_thread": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Explicitly allow an algorithm which QGIS requires to run on the GUI thread and which may make the application unresponsive.",
+                },
             },
             ["algorithm", "parameters"],
         ),
@@ -247,7 +429,7 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "qgis_screenshot",
-        "description": "Capture the QGIS main window, map canvas, or a discovered Qt widget for visual verification.",
+        "description": "Capture the QGIS main window, map canvas, or a discovered Qt widget as MCP image content, with a SHA-256 digest and bounded structural pixel analysis for text-only clients.",
         "inputSchema": _object(
             {
                 "target": {"type": "string", "default": "canvas"},
@@ -269,7 +451,7 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "qgis_handle_read",
-        "description": "Read a page from a temporary server-side handle returned for a result too large to inline.",
+        "description": "Read a byte-bounded page from a temporary server-side handle returned for a result too large to inline; oversized nested values are returned as child handles.",
         "inputSchema": _object(
             {
                 "handle": {"type": "string"},
@@ -281,19 +463,35 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "qgis_batch",
-        "description": "Execute several bridge calls in order with one transport round trip. Stops on error unless continue_on_error is true.",
+        "description": "Execute a safe declarative QGIS pipeline in one transport round trip. Steps can reference prior outputs, select JSON Pointer slices, and capture only summaries or server-side handles.",
         "inputSchema": _object(
             {
                 "calls": {
                     "type": "array",
                     "minItems": 1,
-                    "maxItems": 100,
+                    "maxItems": 25,
                     "items": {
                         "type": "object",
                         "required": ["method"],
                         "properties": {
                             "method": {"type": "string"},
                             "params": {"type": "object"},
+                            "save_as": {
+                                "type": "string",
+                                "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$",
+                                "description": "Name this selected result for later explicit $ref values.",
+                            },
+                            "select": {
+                                "type": "string",
+                                "pattern": "^(/.*)?$",
+                                "description": "RFC 6901 JSON Pointer applied before capture.",
+                            },
+                            "capture": {
+                                "type": "string",
+                                "enum": ["full", "summary", "handle", "none"],
+                                "default": "full",
+                                "description": "Controls how much of this intermediate result returns to the model.",
+                            },
                         },
                     },
                 },
@@ -302,6 +500,22 @@ TOOLS: list[dict[str, Any]] = [
                     "type": "boolean",
                     "default": False,
                     "description": "Checkpoint the project and restore it if any call fails.",
+                },
+                "outputs": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "object",
+                        "properties": {"$ref": {"type": "string"}},
+                        "required": ["$ref"],
+                        "additionalProperties": False,
+                    },
+                    "description": "Named final values resolved from step variables, for example {\"count\": {\"$ref\": \"query#/feature_count\"}}.",
+                },
+                "return_mode": {
+                    "type": "string",
+                    "enum": ["steps", "outputs", "summary"],
+                    "default": "steps",
+                    "description": "Return step captures, only declared outputs, or compact step summaries.",
                 },
             },
             ["calls"],
@@ -331,7 +545,7 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "qgis_data_fetch",
-        "description": "Securely download a bounded spatial dataset through QGIS networking, reuse its local cache, record provenance, and optionally add supported vector or raster data to the project.",
+        "description": "Securely download a bounded spatial dataset through QGIS networking, reuse its local cache, record provenance, and optionally add supported vector, raster, LAS, or LAZ point-cloud data to the project.",
         "inputSchema": _object(
             {
                 "url": {"type": "string", "format": "uri"},
@@ -367,6 +581,12 @@ TOOLS: list[dict[str, Any]] = [
                 "y_field": {"type": "string"},
                 "delimiter": {"type": "string", "minLength": 1, "maxLength": 4, "default": ","},
                 "crs": {"type": "string", "default": "EPSG:4326"},
+                "timeout_seconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 300,
+                    "default": 30,
+                },
             },
             ["url"],
         ),
@@ -464,18 +684,58 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "qgis_style_apply",
-        "description": "Apply a deterministic simple, categorized, or graduated vector style with bounded classes and curated color ramps.",
+        "description": "Apply a deterministic style to vector or raster layers. Vector layers support simple/categorized/graduated modes; raster layers support gray, RGB, and pseudocolor modes (with automatic band statistics and curated ramps).",
         "inputSchema": _object(
             {
                 "layer": {"type": "string"},
-                "mode": {"type": "string", "enum": ["simple", "categorized", "graduated"], "default": "simple"},
+                "mode": {
+                    "type": "string",
+                    "enum": [
+                        "simple",
+                        "categorized",
+                        "graduated",
+                        "single_band_gray",
+                        "multiband_color",
+                        "pseudocolor",
+                        "set_opacity",
+                    ],
+                    "default": "simple",
+                },
                 "field": {"type": "string"},
                 "color": {"type": "string", "default": "#3388ff"},
                 "opacity": {"type": "number", "minimum": 0, "maximum": 1, "default": 1},
                 "size": {"type": "number", "minimum": 0, "maximum": 100, "default": 3},
                 "width": {"type": "number", "minimum": 0, "maximum": 100, "default": 0.8},
                 "classes": {"type": "integer", "minimum": 2, "maximum": 20, "default": 5},
-                "color_ramp": {"type": "string", "enum": ["blue", "green", "fire"], "default": "blue"},
+                "color_ramp": {
+                    "oneOf": [
+                        {"type": "string", "enum": ["blue", "green", "fire", "terrain"]},
+                        {
+                            "type": "array",
+                            "minItems": 2,
+                            "items": _object(
+                                {
+                                    "value": {"type": "number"},
+                                    "color": {"type": "string"},
+                                    "label": {"type": "string"},
+                                },
+                                ["value", "color"],
+                            ),
+                        },
+                    ],
+                    "default": "blue",
+                },
+                "band": {"type": "integer", "minimum": 1, "default": 1},
+                "red_band": {"type": "integer", "minimum": 1, "default": 1},
+                "green_band": {"type": "integer", "minimum": 1, "default": 2},
+                "blue_band": {"type": "integer", "minimum": 1, "default": 3},
+                "minimum": {"type": "number"},
+                "maximum": {"type": "number"},
+                "interpolation": {
+                    "type": "string",
+                    "enum": ["linear", "discrete", "exact"],
+                    "default": "linear",
+                },
             },
             ["layer"],
         ),
@@ -552,7 +812,7 @@ TOOLS: list[dict[str, Any]] = [
                 "steps": {
                     "type": "array",
                     "minItems": 1,
-                    "maxItems": 100,
+                    "maxItems": 25,
                     "items": _object(
                         {
                             "method": {"type": "string"},
@@ -568,8 +828,8 @@ TOOLS: list[dict[str, Any]] = [
                 "resume": {"type": "boolean", "default": False},
                 "resume_on_restart": {
                     "type": "boolean",
-                    "default": True,
-                    "description": "Automatically resume an interrupted run when QGIS starts again.",
+                    "default": False,
+                    "description": "Explicitly resume an interrupted run when QGIS starts again. Disabled by default to avoid repeating a crash-causing step.",
                 },
             },
             ["action"],
@@ -579,8 +839,9 @@ TOOLS: list[dict[str, Any]] = [
         "name": "qgis_visual_review",
         "description": (
             "Close the autonomous cartography loop: capture the current map as MCP image "
-            "content, combine it with structural QGIS checks, apply a bounded atomic set of "
-            "corrections, and record the model's visual verdict."
+            "content, combine it with structural QGIS and sampled pixel checks, apply a bounded "
+            "atomic set of corrections, and record the model's visual verdict. Text-only clients "
+            "can detect blank/incomplete captures but cannot certify aesthetics."
         ),
         "inputSchema": _object(
             {
@@ -1211,14 +1472,19 @@ TOOLS.extend(
         },
         {
             "name": "qgis_processing_batch",
-            "description": "Start up to 500 asynchronous runs of one Processing algorithm with independent parameter rows.",
+            "description": "Start up to 50 managed runs of one Processing algorithm with independent parameter rows.",
             "inputSchema": _object(
                 {
                     "algorithm": {"type": "string"},
-                    "rows": {"type": "array", "minItems": 1, "maxItems": 500, "items": {"type": "object"}},
+                    "rows": {"type": "array", "minItems": 1, "maxItems": 50, "items": {"type": "object"}},
                     "retain_outputs": {"type": "boolean", "default": True},
                     "add_to_project": {"type": "boolean", "default": False},
                     "stop_on_error": {"type": "boolean", "default": False},
+                    "allow_main_thread": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Explicitly allow algorithms which QGIS requires to run on the GUI thread.",
+                    },
                 },
                 ["algorithm", "rows"],
             ),
@@ -1262,6 +1528,11 @@ TOOLS.extend(
                     "sql": {"type": "string"},
                     "limit": {"type": "integer", "minimum": 1, "maximum": 10000, "default": 1000},
                     "allow_mutation": {"type": "boolean", "default": False},
+                    "allow_blocking": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Explicitly allow SQL query or VACUUM calls which may block QGIS while the provider waits.",
+                    },
                     "new_name": {"type": "string"},
                 },
                 ["provider", "connection"],
@@ -1457,16 +1728,21 @@ TOOLS.extend(
                     "minimum": {"type": "number"},
                     "maximum": {"type": "number"},
                     "color_ramp": {
-                        "type": "array",
-                        "minItems": 2,
-                        "items": _object(
+                        "oneOf": [
+                            {"type": "string", "enum": ["blue", "green", "fire", "terrain"]},
                             {
-                                "value": {"type": "number"},
-                                "color": {"type": "string"},
-                                "label": {"type": "string"},
+                                "type": "array",
+                                "minItems": 2,
+                                "items": _object(
+                                    {
+                                        "value": {"type": "number"},
+                                        "color": {"type": "string"},
+                                        "label": {"type": "string"},
+                                    },
+                                    ["value", "color"],
+                                ),
                             },
-                            ["value", "color"],
-                        ),
+                        ]
                     },
                     "interpolation": {"type": "string", "enum": ["linear", "discrete", "exact"], "default": "linear"},
                 },
@@ -1563,14 +1839,76 @@ TOOLS.extend(
 TOOLS.extend(
     [
         {
-            "name": "qgis_plugins",
-            "description": "List, enable, disable, reload, or refresh installed Python plugins and open the QGIS plugin manager.",
+            "name": "qgis_plugin_advisor",
+            "description": "Recommend a native, installed, or compatible official QGIS plugin for a task without installing automatically.",
             "inputSchema": _object(
                 {
-                    "action": {"type": "string", "enum": ["list", "enable", "disable", "reload", "refresh_catalog", "show_manager"], "default": "list"},
+                    "action": {
+                        "type": "string",
+                        "enum": ["recommend", "search", "describe", "status"],
+                        "default": "recommend",
+                    },
+                    "task": {
+                        "type": "string",
+                        "minLength": 3,
+                        "maxLength": 1000,
+                        "description": "Job to solve; used to compare native, installed, and new capabilities.",
+                    },
+                    "query": {
+                        "type": "string",
+                        "minLength": 2,
+                        "maxLength": 500,
+                        "description": "Terms for direct official-catalog search.",
+                    },
+                    "plugin": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9_-]+$",
+                        "description": "Exact plugin package returned by search or recommendation.",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 20,
+                        "default": 3,
+                        "description": "Maximum compact candidates; recommendations are capped at three.",
+                    },
+                    "include_experimental": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Include experimental official plugins in candidate ranking.",
+                    },
+                    "refresh": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Refresh the cached official catalog before searching.",
+                    },
+                }
+            ),
+        },
+        {
+            "name": "qgis_plugins",
+            "description": "Manage installed Python plugins or install an official-repository proposal produced by qgis_plugin_advisor after explicit user confirmation.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["list", "enable", "disable", "reload", "install", "refresh_catalog", "show_manager"], "default": "list"},
                     "plugin": {"type": "string"},
                     "query": {"type": "string", "default": ""},
                     "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 300},
+                    "proposal_id": {
+                        "type": "string",
+                        "pattern": "^qp_[A-Za-z0-9_-]+$",
+                        "description": "Short-lived installation proposal returned by qgis_plugin_advisor.",
+                    },
+                    "confirm_installation": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Set only after the user explicitly approves installing this exact proposal.",
+                    },
+                    "confirm_untrusted": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Additional explicit approval for a plugin not marked trusted by QGIS.",
+                    },
                 }
             ),
         },
@@ -1617,7 +1955,7 @@ TOOLS.extend(
         },
         {
             "name": "qgis_3d_views",
-            "description": "List, create, configure, or close QGIS 3D map views, including layers, terrain, skybox, labels, eye-dome lighting, and camera settings.",
+            "description": "List, create, configure, or close QGIS 3D map views, including local/globe scene mode, layers, terrain, skybox, labels, eye-dome lighting, and camera settings. On QGIS 3.44/Windows, creation is queued to the native C++ slot and the initialized canvas is resolved through its Qt QWindow, avoiding the unstable PyQGIS mapCanvases3D() wrapper; use list after initialization to resolve the generated native view.",
             "inputSchema": _object(
                 {
                     "action": {"type": "string", "enum": ["list", "create", "configure", "close"], "default": "list"},
@@ -1630,6 +1968,11 @@ TOOLS.extend(
                     "skybox_enabled": {"type": "boolean"},
                     "eye_dome_lighting": {"type": "boolean"},
                     "layers": {"type": "array", "items": {"type": "string"}},
+                    "scene_mode": {
+                        "type": "string",
+                        "enum": ["local", "globe"],
+                        "default": "local",
+                    },
                 }
             ),
         },
@@ -1881,6 +2224,36 @@ _MUTATION_TOOLS = {
     "qgis_geometry_quality",
     "qgis_vector_export",
 }
+
+_DESTRUCTIVE_TOOLS = {
+    "qgis_artifact_release",
+    "qgis_batch",
+    "qgis_checkpoint",
+    "qgis_connection_manage",
+    "qgis_database",
+    "qgis_geometry_edit",
+    "qgis_layer_manage",
+    "qgis_project_action",
+    "qgis_project_manage",
+    "qgis_project_repair",
+    "qgis_transaction",
+    "qgis_vector_edit",
+    "qgis_vector_export",
+    "qgis_workflow",
+}
+
+_OPEN_WORLD_TOOLS = {
+    "qgis_auth",
+    "qgis_connection_manage",
+    "qgis_connections",
+    "qgis_data_fetch",
+    "qgis_data_service",
+    "qgis_database",
+    "qgis_plugins",
+    "qgis_plugin_advisor",
+    "qgis_server",
+}
+
 for _tool in TOOLS:
     if _tool["name"] in _MUTATION_TOOLS:
         _tool["inputSchema"]["properties"].update(
@@ -1908,6 +2281,12 @@ for _tool in TOOLS:
                 },
             }
         )
+    enrich_tool_definition(
+        _tool,
+        mutation=_tool["name"] in _MUTATION_TOOLS,
+        destructive=_tool["name"] in _DESTRUCTIVE_TOOLS,
+        open_world=_tool["name"] in _OPEN_WORLD_TOOLS,
+    )
 
 TOOL_METHODS = {
     "qgis_session_snapshot": "session.snapshot",
@@ -2002,6 +2381,7 @@ TOOL_METHODS = {
     "qgis_tiled_scene": "tiled_scene.control",
     "qgis_temporal": "layer.temporal",
     "qgis_elevation": "layer.elevation",
+    "qgis_plugin_advisor": "plugins.advise",
     "qgis_plugins": "ecosystem.plugins",
     "qgis_settings": "ecosystem.settings",
     "qgis_shortcuts": "ecosystem.shortcuts",

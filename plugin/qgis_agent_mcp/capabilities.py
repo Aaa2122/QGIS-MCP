@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import inspect
+import re
+import time
+import unicodedata
 
 import qgis.utils
 from qgis.core import QgsApplication, QgsProject
@@ -14,8 +17,15 @@ class ObjectRegistry:
     def __init__(self, iface):
         self.iface = iface
         self._objects = {}
+        self._refreshed_at = 0.0
 
-    def refresh(self):
+    def refresh(self, force=False):
+        if (
+            not force
+            and self._objects
+            and time.monotonic() - self._refreshed_at < 1.0
+        ):
+            return self._objects
         self._objects = {}
         roots = [self.iface.mainWindow()]
         roots.extend(QApplication.topLevelWidgets())
@@ -27,12 +37,13 @@ class ObjectRegistry:
                 seen.add(id(obj))
                 runtime_id = self._runtime_id(obj)
                 self._objects[runtime_id] = obj
+        self._refreshed_at = time.monotonic()
         return self._objects
 
     def get(self, runtime_id):
         obj = self._objects.get(runtime_id)
         if obj is None:
-            self.refresh()
+            self.refresh(force=True)
             obj = self._objects.get(runtime_id)
         if obj is None:
             raise KeyError("Qt target is stale or unknown; search the UI again")
@@ -98,42 +109,77 @@ class CapabilityIndex:
     def __init__(self, iface, objects):
         self.iface = iface
         self.objects = objects
+        self._processing_cache = []
+        self._processing_cache_until = 0.0
+        self._plugin_cache = []
+        self._plugin_cache_until = 0.0
+        self._api_cache = {}
 
-    def search(self, query="", kinds=None, limit=30):
-        wanted = set(kinds or ("processing", "plugin", "action", "widget", "api"))
-        needle = query.casefold().strip()
+    def invalidate(self):
+        self._processing_cache = []
+        self._processing_cache_until = 0.0
+        self._plugin_cache = []
+        self._plugin_cache_until = 0.0
+        self._api_cache = {}
+        return self.objects.refresh(force=True)
+
+    def reindex(self):
+        objects = self.invalidate()
+        processing = self._processing_items()
+        plugins = self._plugin_items()
+        return {
+            "processing_algorithms": len(processing),
+            "enabled_plugins": len(plugins),
+            "qgis_actions": sum(isinstance(obj, QAction) for obj in objects.values()),
+        }
+
+    def _processing_items(self):
+        now = time.monotonic()
+        if now < self._processing_cache_until:
+            return self._processing_cache
         results = []
-        if "processing" in wanted:
-            registry = QgsApplication.processingRegistry()
-            for algorithm in registry.algorithms():
-                item = {
+        registry = QgsApplication.processingRegistry()
+        for algorithm in registry.algorithms():
+            results.append(
+                {
                     "kind": "processing",
                     "id": algorithm.id(),
                     "name": algorithm.displayName(),
                     "group": algorithm.group(),
                     "provider": algorithm.provider().id() if algorithm.provider() else None,
                 }
-                _append_if_match(results, item, needle)
-        if "plugin" in wanted:
-            for plugin_id, plugin in qgis.utils.plugins.items():
-                item = {
-                    "kind": "plugin",
-                    "id": plugin_id,
-                    "name": getattr(plugin, "name", plugin_id),
-                    "class": type(plugin).__name__,
-                    "module": type(plugin).__module__,
-                }
-                _append_if_match(results, item, needle)
-        if {"action", "widget"} & wanted:
-            for runtime_id, obj in self.objects.refresh().items():
-                item = self.objects.summarize(runtime_id, obj)
-                if item["kind"] in wanted:
-                    _append_if_match(results, item, needle)
-        if "api" in wanted:
-            for root_name, factory in self.API_ROOTS.items():
-                obj = factory(self.iface)
-                if obj is None:
-                    continue
+            )
+        self._processing_cache = results
+        self._processing_cache_until = now + 10.0
+        return results
+
+    def _plugin_items(self):
+        now = time.monotonic()
+        if now < self._plugin_cache_until:
+            return self._plugin_cache
+        self._plugin_cache = [
+            {
+                "kind": "plugin",
+                "id": plugin_id,
+                "name": getattr(plugin, "name", plugin_id),
+                "class": type(plugin).__name__,
+                "module": type(plugin).__module__,
+            }
+            for plugin_id, plugin in qgis.utils.plugins.items()
+        ]
+        self._plugin_cache_until = now + 2.0
+        return self._plugin_cache
+
+    def _api_items(self):
+        results = []
+        for root_name, factory in self.API_ROOTS.items():
+            obj = factory(self.iface)
+            if obj is None:
+                continue
+            cache_key = (root_name, type(obj))
+            cached = self._api_cache.get(cache_key)
+            if cached is None:
+                cached = []
                 for member in dir(obj):
                     if member.startswith("_"):
                         continue
@@ -143,13 +189,37 @@ class CapabilityIndex:
                         attr = None
                     if not callable(attr):
                         continue
-                    item = {
-                        "kind": "api",
-                        "id": "{}.{}".format(root_name, member),
-                        "name": member,
-                        "owner": type(obj).__name__,
-                    }
-                    _append_if_match(results, item, needle)
+                    cached.append(
+                        {
+                            "kind": "api",
+                            "id": "{}.{}".format(root_name, member),
+                            "name": member,
+                            "owner": type(obj).__name__,
+                        }
+                    )
+                self._api_cache[cache_key] = cached
+            results.extend(cached)
+        return results
+
+    def search(self, query="", kinds=None, limit=30):
+        wanted = set(kinds or ("processing", "plugin", "action", "widget", "api"))
+        needle = _normalize(query).strip()
+        query_tokens = _tokens(query)
+        results = []
+        if "processing" in wanted:
+            for item in self._processing_items():
+                _append_if_match(results, item, needle, query_tokens)
+        if "plugin" in wanted:
+            for item in self._plugin_items():
+                _append_if_match(results, item, needle, query_tokens)
+        if {"action", "widget"} & wanted:
+            for runtime_id, obj in self.objects.refresh().items():
+                item = self.objects.summarize(runtime_id, obj)
+                if item["kind"] in wanted:
+                    _append_if_match(results, item, needle, query_tokens)
+        if "api" in wanted:
+            for item in self._api_items():
+                _append_if_match(results, item, needle, query_tokens)
         results.sort(key=lambda item: _score(item, needle))
         return {"query": query, "results": results[:limit], "truncated": len(results) > limit}
 
@@ -296,9 +366,44 @@ def _widget_text(obj):
     return None
 
 
-def _append_if_match(results, item, needle):
-    if not needle or needle in " ".join(str(value) for value in item.values()).casefold():
-        results.append(item)
+def _normalize(value):
+    return "".join(
+        character
+        for character in unicodedata.normalize("NFKD", str(value).casefold())
+        if not unicodedata.combining(character)
+    )
+
+
+def _tokens(value):
+    return {
+        token
+        for token in re.findall(r"[a-z0-9]+", _normalize(value))
+        if len(token) > 2
+    }
+
+
+def _append_if_match(results, item, needle, query_tokens):
+    haystack = _normalize(" ".join(str(value) for value in item.values()))
+    if not needle:
+        results.append({**item, "relevance": 0})
+        return
+    overlap = query_tokens & _tokens(haystack)
+    phrase = needle in haystack
+    if not overlap and not phrase:
+        return
+    name = _normalize(item.get("name", ""))
+    identifier = _normalize(item.get("id", ""))
+    relevance = len(overlap) * 20
+    relevance += 60 if phrase else 0
+    relevance += 40 if name == needle or identifier == needle else 0
+    relevance += 15 if name.startswith(needle) else 0
+    results.append(
+        {
+            **item,
+            "relevance": relevance,
+            "matched_terms": sorted(overlap),
+        }
+    )
 
 
 def _score(item, needle):
@@ -307,6 +412,7 @@ def _score(item, needle):
     name = str(item.get("name", "")).casefold()
     identifier = str(item.get("id", "")).casefold()
     return (
+        -int(item.get("relevance", 0)),
         0 if name == needle else 1 if identifier == needle else 2 if name.startswith(needle) else 3,
         name,
     )

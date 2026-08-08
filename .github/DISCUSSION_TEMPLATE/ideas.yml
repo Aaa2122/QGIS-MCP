@@ -1,0 +1,23 @@
+title: "[Idea] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this space to explore an idea before turning it into an implementation-ready Issue.
+  - type: textarea
+    id: workflow
+    attributes:
+      label: QGIS workflow or problem
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: Idea
+      description: Describe the desired capability, result and likely users.
+    validations:
+      required: true
+  - type: textarea
+    id: tradeoffs
+    attributes:
+      label: Safety, context or compatibility considerations

@@ -1,0 +1,24 @@
+title: "[Q&A] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ask a focused QGIS Agent MCP question. Do not include credentials, private datasets or authentication files.
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: "QGIS 3.44.12, Windows 11, plugin 0.4.9, Codex"
+    validations:
+      required: true
+  - type: textarea
+    id: goal
+    attributes:
+      label: What are you trying to accomplish?
+    validations:
+      required: true
+  - type: textarea
+    id: attempted
+    attributes:
+      label: What have you tried?
+      description: Include sanitized errors or tool names when useful.
