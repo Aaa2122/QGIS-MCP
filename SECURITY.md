@@ -13,7 +13,7 @@ Security fixes are provided for the latest published release. Users should upgra
 
 ## Report a vulnerability privately
 
-Use [GitHub private vulnerability reporting](https://github.com/Aaa2122/QGIS-MCP/security/advisories/new). If that channel is unavailable, email **96547921+Aaa2122@users.noreply.github.com** with the subject `QGIS Agent MCP security report`.
+Use [GitHub private vulnerability reporting](https://github.com/Aaa2122/QGIS-MCP/security/advisories/new). Do not use public Issues or Discussions for vulnerability reports.
 
 Please include:
 

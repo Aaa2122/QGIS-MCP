@@ -23,7 +23,7 @@ jobs:
       matrix:
         python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
@@ -43,7 +43,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Start official QGIS LTR desktop test image
         run: |
           mkdir -p benchmark-results
@@ -81,7 +81,7 @@ jobs:
       image: ghcr.io/qgis/pyqgis4-checker:main-ubuntu
       options: --user 0:0
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Check QGIS plugin code
         run: pyqt5_to_pyqt6.py plugin/qgis_agent_mcp
       - name: Check bundled MCP runtime

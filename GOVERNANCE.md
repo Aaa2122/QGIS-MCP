@@ -1,6 +1,6 @@
 # Governance
 
-QGIS Agent MCP is an open-source project maintained by Aaa2122 ([@Aaa2122](https://github.com/Aaa2122)).
+QGIS Agent MCP is an open-source project maintained by [@Aaa2122](https://github.com/Aaa2122).
 
 ## Decision making
 

@@ -3,8 +3,7 @@ message: "If QGIS Agent MCP supports your work, please cite the software using t
 title: "QGIS Agent MCP"
 type: software
 authors:
-  - family-names: Sagaert
-    given-names: Auguste
+  - name: QGIS Agent MCP contributors
 version: 0.4.9
 date-released: 2026-08-08
 license: MIT

@@ -23,7 +23,7 @@ This code applies in the repository, Issues, Pull Requests, Discussions, release
 
 ## Reporting and enforcement
 
-Report conduct concerns privately to **96547921+Aaa2122@users.noreply.github.com**. Include links or screenshots when safe to do so. Do not open a public issue for sensitive reports.
+Report confidential conduct concerns through the repository's [private reporting form](https://github.com/Aaa2122/QGIS-MCP/security/advisories/new) and prefix the title with `Community conduct`. Include links or screenshots when safe to do so. Do not open a public issue for sensitive reports.
 
 Maintainers will review reports promptly, minimize unnecessary disclosure and act proportionally. Possible responses include a private warning, content removal, temporary participation restrictions or a permanent ban. Maintainers who are directly involved in a report must recuse themselves from deciding its outcome whenever another neutral reviewer is available.
 
