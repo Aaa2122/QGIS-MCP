@@ -15,6 +15,53 @@ from .tool_catalog import (
 
 DISCOVERY_TOOLS: list[dict[str, Any]] = [
     {
+        "name": "qgis_context",
+        "description": (
+            "Build one task-conditioned, byte-bounded context pack from the live QGIS "
+            "project, specialist tools, and runtime capabilities. Prefer this before a "
+            "multi-step job instead of separate snapshot, search, and describe calls."
+        ),
+        "inputSchema": _object(
+            {
+                "task": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 2000,
+                    "description": "Concrete QGIS job the model intends to perform.",
+                },
+                "budget_bytes": {
+                    "type": "integer",
+                    "minimum": 2048,
+                    "maximum": 32768,
+                    "default": 8192,
+                    "description": "Hard UTF-8 budget for the structured context pack.",
+                },
+                "since_revision": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Previous project revision for a compact delta snapshot.",
+                },
+                "detail": {
+                    "type": "string",
+                    "enum": ["summary", "standard", "full"],
+                    "default": "summary",
+                },
+                "tool_limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10,
+                    "default": 5,
+                },
+                "runtime_mode": {
+                    "type": "string",
+                    "enum": ["auto", "include", "skip"],
+                    "default": "auto",
+                },
+            },
+            ["task"],
+        ),
+    },
+    {
         "name": "qgis_tools",
         "description": (
             "Search and activate QGIS specialist tools without loading their schemas into "
@@ -33,7 +80,19 @@ DISCOVERY_TOOLS: list[dict[str, Any]] = [
                 "toolsets": {"type": "array", "items": {"type": "string"}},
                 "replace": {"type": "boolean", "default": False},
                 "limit": {"type": "integer", "minimum": 1, "maximum": 30, "default": 5},
-                "include_schema": {"type": "boolean", "default": True},
+                "detail": {
+                    "type": "string",
+                    "enum": ["adaptive", "names", "summary", "schema"],
+                    "default": "adaptive",
+                    "description": (
+                        "Progressive disclosure level. Adaptive loads only the top one or two "
+                        "schemas according to score confidence."
+                    ),
+                },
+                "include_schema": {
+                    "type": "boolean",
+                    "description": "Deprecated compatibility switch; use detail instead.",
+                },
                 "runtime_mode": {
                     "type": "string",
                     "enum": ["auto", "include", "skip"],
@@ -61,10 +120,20 @@ DISCOVERY_TOOLS: list[dict[str, Any]] = [
 ]
 
 enrich_tool_definition(DISCOVERY_TOOLS[0], mutation=False)
+enrich_tool_definition(DISCOVERY_TOOLS[1], mutation=False)
 enrich_tool_definition(
-    DISCOVERY_TOOLS[1], mutation=True, destructive=True, open_world=True
+    DISCOVERY_TOOLS[2], mutation=True, destructive=True, open_world=True
 )
 DISCOVERY_TOOLS[0]["outputSchema"]["properties"] = {
+    "task": {"type": "string"},
+    "budget_bytes": {"type": "integer"},
+    "returned_bytes": {"type": "integer"},
+    "snapshot": {"type": "object"},
+    "tools": {"type": "array"},
+    "runtime_matches": {"type": "array"},
+    "preconditions": {"type": "object"},
+}
+DISCOVERY_TOOLS[1]["outputSchema"]["properties"] = {
     "query": {"type": "string"},
     "matches": {"type": "array"},
     "runtime_matches": {"type": "array"},
@@ -77,18 +146,9 @@ DISCOVERY_TOOL_NAMES = {tool["name"] for tool in DISCOVERY_TOOLS}
 # through qgis_tools + qgis_tool_call, so catalog growth does not increase the default cost.
 CORE_TOOL_NAMES = {
     "qgis_session_snapshot",
-    "qgis_project_inspect",
-    "qgis_layer_inspect",
-    "qgis_capabilities_search",
-    "qgis_capability_describe",
-    "qgis_processing_start",
     "qgis_operation",
     "qgis_screenshot",
     "qgis_batch",
-    "qgis_workflow",
-    "qgis_visual_review",
-    "qgis_project_verify",
-    "qgis_diagnostics",
 }
 
 TOOLSET_DESCRIPTIONS = {
@@ -129,9 +189,17 @@ TOOL_ALIASES = {
         "find discover processing algorithm raster slope buffer proximity contour hillshade "
         "geocode rechercher trouver algorithme pente tampon proximite"
     ),
+    "qgis_context": (
+        "context task plan prepare project layers capability schema contexte tache planifier "
+        "preparer projet couches capacite"
+    ),
     "qgis_geometry_quality": "topology validate invalid geometry repair geometrie topologie",
     "qgis_labeling": "label collision placement overlap etiquette collision chevauchement",
     "qgis_offline": "offline project package sync field mobile hors ligne synchronisation",
+    "qgis_plugin_advisor": (
+        "plugin extension addon recommend discover install capability missing useful "
+        "extension recommander decouvrir installer capacite manquante utile"
+    ),
     "qgis_point_cloud": "point cloud lidar las laz nuage points nuage de points",
     "qgis_processing_start": (
         "analysis processing algorithm raster slope buffer proximity contour hillshade interpolate "
@@ -186,6 +254,7 @@ _METHOD_TOOLSETS = {
     "ui": "runtime",
     "logs": "runtime",
     "python": "runtime",
+    "plugins": "ecosystem",
     "ecosystem": "ecosystem",
     "authoring": "authoring",
     "qa": "qa",
@@ -197,6 +266,7 @@ _SPECIAL_TOOLSETS = {
     "qgis_vector_export": "vector",
     "qgis_geometry_quality": "authoring",
     "qgis_permissions": "autonomy",
+    "qgis_plugin_advisor": "ecosystem",
     "qgis_preflight": "autonomy",
     "qgis_fire_map": "autonomy",
     "qgis_connectors": "autonomy",
@@ -293,14 +363,18 @@ class ToolRegistry:
             return _SPECIAL_TOOLSETS[name]
         return _METHOD_TOOLSETS.get(method.split(".", 1)[0], "runtime")
 
-    def visible_tools(self) -> list[dict[str, Any]]:
+    def visible_tools(self, *, include_active: bool = True) -> list[dict[str, Any]]:
         if self.mode == "full":
             names = set(self._tools)
         else:
             names = set(CORE_TOOL_NAMES)
-            for toolset in self._active_toolsets:
-                names.update(self._toolsets[toolset])
-        return list(DISCOVERY_TOOLS) + [tool for tool in TOOLS if tool["name"] in names]
+            if include_active:
+                for toolset in self._active_toolsets:
+                    names.update(self._toolsets[toolset])
+        return list(DISCOVERY_TOOLS) + sorted(
+            (tool for tool in TOOLS if tool["name"] in names),
+            key=lambda tool: tool["name"],
+        )
 
     def has_tool(self, name: str) -> bool:
         return name in self._tools
@@ -311,10 +385,14 @@ class ToolRegistry:
     def command(self, arguments: dict[str, Any]) -> dict[str, Any]:
         action = str(arguments.get("action", "search"))
         if action == "search":
+            include_schema = arguments.get("include_schema")
             return self.search(
                 str(arguments.get("query", "")),
                 limit=int(arguments.get("limit", 5)),
-                include_schema=bool(arguments.get("include_schema", True)),
+                detail=str(arguments.get("detail", "adaptive")),
+                include_schema=(
+                    bool(include_schema) if include_schema is not None else None
+                ),
             )
         if action == "describe":
             return self.describe(str(arguments.get("tool", "")))
@@ -335,14 +413,24 @@ class ToolRegistry:
             return self.status()
         raise ValueError(f"Unknown qgis_tools action: {action}")
 
-    def search(self, query: str, *, limit: int = 5, include_schema: bool = True) -> dict[str, Any]:
+    def search(
+        self,
+        query: str,
+        *,
+        limit: int = 5,
+        detail: str = "adaptive",
+        include_schema: bool | None = None,
+    ) -> dict[str, Any]:
+        if include_schema is not None:
+            detail = "schema" if include_schema else "summary"
+        if detail not in {"adaptive", "names", "summary", "schema"}:
+            raise ValueError("detail must be adaptive, names, summary, or schema")
         query_tokens = _tokens(query)
         normalized = _normalize(query).strip()
-        matches: list[tuple[int, str, dict[str, Any]]] = []
+        matches: list[tuple[int, str, dict[str, Any], set[str]]] = []
         for entry in self._search_index:
             name = entry["name"]
             tool = entry["tool"]
-            toolset = entry["toolset"]
             direct_haystack = entry["direct_haystack"]
             direct_tokens = entry["direct_tokens"]
             alias_haystack = entry["alias_haystack"]
@@ -365,21 +453,36 @@ class ToolRegistry:
                     score += 50
                 if not matched_terms and score == 0:
                     continue
+            matches.append((score, name, entry, matched_terms))
+        matches.sort(key=lambda item: (-item[0], item[1]))
+        selected = matches[: max(1, min(limit, 30))]
+        schema_count = 0
+        if detail == "schema":
+            schema_count = len(selected)
+        elif detail == "adaptive" and selected:
+            schema_count = 1
+            if len(selected) > 1:
+                first_score, second_score = selected[0][0], selected[1][0]
+                confidence_margin = max(12, int(max(first_score, 1) * 0.2))
+                if first_score - second_score <= confidence_margin:
+                    schema_count = 2
+        results: list[dict[str, Any]] = []
+        for index, (score, name, entry, matched_terms) in enumerate(selected):
+            tool = entry["tool"]
             examples = self._examples(tool)
             summary: dict[str, Any] = {
                 "name": name,
-                "toolset": toolset,
-                "description": tool["description"],
+                "toolset": entry["toolset"],
                 "relevance": score,
                 "matched_terms": sorted(matched_terms),
                 "call": {"tool": name, "arguments": examples[0]},
             }
-            if include_schema:
+            if detail != "names":
+                summary["description"] = tool["description"]
+            if index < schema_count:
                 summary["inputSchema"] = tool["inputSchema"]
                 summary["examples"] = examples
-            matches.append((score, name, summary))
-        matches.sort(key=lambda item: (-item[0], item[1]))
-        results = [item[2] for item in matches[: max(1, min(limit, 30))]]
+            results.append(summary)
         toolset_matches = []
         for name, description in TOOLSET_DESCRIPTIONS.items():
             tokens = _tokens(" ".join((name, description, TOOLSET_KEYWORDS[name])))
@@ -397,11 +500,13 @@ class ToolRegistry:
             "query": query,
             "matches": results,
             "total_matches": len(matches),
+            "detail": detail,
+            "schema_tools": [item["name"] for item in results if "inputSchema" in item],
             "suggested_toolsets": toolset_matches[:3],
             "runtime_discovery_recommended": bool(query_tokens & _PROCESSING_INTENTS),
             "usage": (
-                "Schemas and examples are included by default. Call qgis_tool_call with one "
-                "match, or use the returned live Processing match when present."
+                "Call qgis_tool_call with a returned match. Use detail=schema or describe only "
+                "when the required schema was not expanded."
             ),
         }
 
@@ -424,10 +529,11 @@ class ToolRegistry:
         }
 
     def validate_arguments(self, name: str, arguments: dict[str, Any]) -> list[str]:
-        if name not in self._tools:
+        tool = self._tools.get(name) or self._discovery.get(name)
+        if tool is None:
             return ["Unknown specialist tool: {}".format(name)]
         errors: list[str] = []
-        _validate_schema(arguments, self._tools[name]["inputSchema"], "$", errors)
+        _validate_schema(arguments, tool["inputSchema"], "$", errors)
         return errors
 
     @staticmethod

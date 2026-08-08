@@ -1,0 +1,9 @@
+title: "[General] "
+body:
+  - type: textarea
+    id: topic
+    attributes:
+      label: Topic
+      description: Keep the discussion relevant to QGIS Agent MCP and follow the Code of Conduct.
+    validations:
+      required: true

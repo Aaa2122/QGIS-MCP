@@ -1,0 +1,41 @@
+name: Compatibility report
+description: Report a QGIS, Qt, operating-system, client or plugin compatibility problem
+title: "[Compatibility]: "
+labels: ["bug", "area: compatibility", "status: needs triage"]
+body:
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: "QGIS 4.2, Qt 6, Windows 11, Codex"
+    validations:
+      required: true
+  - type: input
+    id: plugin-version
+    attributes:
+      label: QGIS Agent MCP version
+      placeholder: "0.4.9"
+    validations:
+      required: true
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Compatibility problem
+      description: Name the QGIS feature, provider, third-party plugin or MCP client involved.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction and sanitized logs
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I tested with the newest compatible QGIS Agent MCP release.
+          required: true
+        - label: I removed credentials, private paths and sensitive data.
+          required: true

@@ -35,6 +35,7 @@ _ACRONYMS = {
 _OUTPUT_PROPERTIES = {
     "qgis_batch": {
         "results": {"type": "array"},
+        "outputs": {"type": "object"},
         "completed": {"type": "integer"},
         "requested": {"type": "integer"},
         "rolled_back": {"type": "boolean"},
@@ -60,6 +61,12 @@ _OUTPUT_PROPERTIES = {
         "id": {"type": "string"},
         "status": {"type": "string"},
         "progress": {"type": "number"},
+    },
+    "qgis_plugin_advisor": {
+        "native_matches": {"type": "array"},
+        "installed_matches": {"type": "array"},
+        "recommendations": {"type": "array"},
+        "catalog": {"type": "object"},
     },
     "qgis_processing_start": {
         "id": {"type": "string"},
@@ -456,7 +463,7 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "qgis_batch",
-        "description": "Execute several bridge calls in order with one transport round trip. Stops on error unless continue_on_error is true.",
+        "description": "Execute a safe declarative QGIS pipeline in one transport round trip. Steps can reference prior outputs, select JSON Pointer slices, and capture only summaries or server-side handles.",
         "inputSchema": _object(
             {
                 "calls": {
@@ -469,6 +476,22 @@ TOOLS: list[dict[str, Any]] = [
                         "properties": {
                             "method": {"type": "string"},
                             "params": {"type": "object"},
+                            "save_as": {
+                                "type": "string",
+                                "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$",
+                                "description": "Name this selected result for later explicit $ref values.",
+                            },
+                            "select": {
+                                "type": "string",
+                                "pattern": "^(/.*)?$",
+                                "description": "RFC 6901 JSON Pointer applied before capture.",
+                            },
+                            "capture": {
+                                "type": "string",
+                                "enum": ["full", "summary", "handle", "none"],
+                                "default": "full",
+                                "description": "Controls how much of this intermediate result returns to the model.",
+                            },
                         },
                     },
                 },
@@ -477,6 +500,22 @@ TOOLS: list[dict[str, Any]] = [
                     "type": "boolean",
                     "default": False,
                     "description": "Checkpoint the project and restore it if any call fails.",
+                },
+                "outputs": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "object",
+                        "properties": {"$ref": {"type": "string"}},
+                        "required": ["$ref"],
+                        "additionalProperties": False,
+                    },
+                    "description": "Named final values resolved from step variables, for example {\"count\": {\"$ref\": \"query#/feature_count\"}}.",
+                },
+                "return_mode": {
+                    "type": "string",
+                    "enum": ["steps", "outputs", "summary"],
+                    "default": "steps",
+                    "description": "Return step captures, only declared outputs, or compact step summaries.",
                 },
             },
             ["calls"],
@@ -1800,14 +1839,76 @@ TOOLS.extend(
 TOOLS.extend(
     [
         {
-            "name": "qgis_plugins",
-            "description": "List, enable, disable, reload, or refresh installed Python plugins and open the QGIS plugin manager.",
+            "name": "qgis_plugin_advisor",
+            "description": "Recommend a native, installed, or compatible official QGIS plugin for a task without installing automatically.",
             "inputSchema": _object(
                 {
-                    "action": {"type": "string", "enum": ["list", "enable", "disable", "reload", "refresh_catalog", "show_manager"], "default": "list"},
+                    "action": {
+                        "type": "string",
+                        "enum": ["recommend", "search", "describe", "status"],
+                        "default": "recommend",
+                    },
+                    "task": {
+                        "type": "string",
+                        "minLength": 3,
+                        "maxLength": 1000,
+                        "description": "Job to solve; used to compare native, installed, and new capabilities.",
+                    },
+                    "query": {
+                        "type": "string",
+                        "minLength": 2,
+                        "maxLength": 500,
+                        "description": "Terms for direct official-catalog search.",
+                    },
+                    "plugin": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9_-]+$",
+                        "description": "Exact plugin package returned by search or recommendation.",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 20,
+                        "default": 3,
+                        "description": "Maximum compact candidates; recommendations are capped at three.",
+                    },
+                    "include_experimental": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Include experimental official plugins in candidate ranking.",
+                    },
+                    "refresh": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Refresh the cached official catalog before searching.",
+                    },
+                }
+            ),
+        },
+        {
+            "name": "qgis_plugins",
+            "description": "Manage installed Python plugins or install an official-repository proposal produced by qgis_plugin_advisor after explicit user confirmation.",
+            "inputSchema": _object(
+                {
+                    "action": {"type": "string", "enum": ["list", "enable", "disable", "reload", "install", "refresh_catalog", "show_manager"], "default": "list"},
                     "plugin": {"type": "string"},
                     "query": {"type": "string", "default": ""},
                     "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 300},
+                    "proposal_id": {
+                        "type": "string",
+                        "pattern": "^qp_[A-Za-z0-9_-]+$",
+                        "description": "Short-lived installation proposal returned by qgis_plugin_advisor.",
+                    },
+                    "confirm_installation": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Set only after the user explicitly approves installing this exact proposal.",
+                    },
+                    "confirm_untrusted": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Additional explicit approval for a plugin not marked trusted by QGIS.",
+                    },
                 }
             ),
         },
@@ -2149,6 +2250,7 @@ _OPEN_WORLD_TOOLS = {
     "qgis_data_service",
     "qgis_database",
     "qgis_plugins",
+    "qgis_plugin_advisor",
     "qgis_server",
 }
 
@@ -2279,6 +2381,7 @@ TOOL_METHODS = {
     "qgis_tiled_scene": "tiled_scene.control",
     "qgis_temporal": "layer.temporal",
     "qgis_elevation": "layer.elevation",
+    "qgis_plugin_advisor": "plugins.advise",
     "qgis_plugins": "ecosystem.plugins",
     "qgis_settings": "ecosystem.settings",
     "qgis_shortcuts": "ecosystem.shortcuts",

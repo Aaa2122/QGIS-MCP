@@ -352,7 +352,13 @@ class RuntimeTools:
                 "output_roots": [str(path) for path in getattr(output_policy, "roots", [])],
             },
             "credentials": "opaque_authcfg_references_only",
-            "plugin_installation": False,
+            "plugin_installation": {
+                "allowed": True,
+                "official_repository_only": True,
+                "proposal_required": True,
+                "explicit_user_confirmation_required": True,
+                "untrusted_plugins_require_extra_confirmation": True,
+            },
         }
 
     def auth(self, action="list", authcfg=None):

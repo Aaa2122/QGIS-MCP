@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import sys
 import time
 
@@ -22,6 +23,13 @@ from qgis.PyQt.QtWidgets import QAction, QApplication
 from .compat import unsafe_python_3d_creation
 from .serialize import json_safe
 
+
+def _bounded_text(value, limit):
+    compact = " ".join(str(value or "").split())
+    if len(compact) <= limit:
+        return compact
+    return compact[: limit - 1].rstrip() + "…"
+
 _SECRET_FRAGMENTS = (
     "password",
     "passwd",
@@ -42,9 +50,30 @@ class EcosystemTools:
         self._3d_pending = {}
         self._3d_native_views = {}
 
-    def plugins(self, action="list", plugin=None, query="", limit=300):
+    def plugins(
+        self,
+        action="list",
+        plugin=None,
+        query="",
+        limit=300,
+        confirmed=False,
+        expected_version=None,
+        experimental=False,
+        allow_untrusted=False,
+        compact=False,
+    ):
         if action == "list":
+            return self._plugins(query, limit, compact=compact)
+        if action == "refresh_catalog":
+            from pyplugin_installer import instance
+
+            instance().fetchAvailablePlugins(reloadMode=True)
+            qgis.utils.updateAvailablePlugins()
+            self.state.touch("ecosystem.plugins", {"action": action})
             return self._plugins(query, limit)
+        if action == "show_manager":
+            self.iface.pluginManagerInterface().showPluginManager()
+            return {"shown": True, "query": str(query or "")}
         package = str(plugin or "").strip()
         if not package:
             raise ValueError("plugin is required")
@@ -64,14 +93,71 @@ class EcosystemTools:
             if package not in qgis.utils.active_plugins:
                 raise KeyError("Plugin is not active")
             qgis.utils.reloadPlugin(package)
-        elif action == "refresh_catalog":
-            qgis.utils.updateAvailablePlugins()
-        elif action == "show_manager":
-            self.iface.pluginManagerInterface().showPluginManager()
+        elif action == "install":
+            self._install_official_plugin(
+                package,
+                confirmed=confirmed,
+                expected_version=expected_version,
+                experimental=experimental,
+                allow_untrusted=allow_untrusted,
+            )
         else:
             raise ValueError("Unknown plugin action")
         self.state.touch("ecosystem.plugins", {"plugin": package, "action": action})
         return self._plugins(package, limit)
+
+    @staticmethod
+    def _install_official_plugin(
+        package,
+        *,
+        confirmed,
+        expected_version,
+        experimental,
+        allow_untrusted,
+    ):
+        if not confirmed:
+            raise ValueError("Explicit user confirmation is required for plugin installation")
+        from pyplugin_installer import instance
+        from pyplugin_installer.installer_data import officialRepo, repositories
+        from pyplugin_installer.installer_data import plugins as installer_plugins
+
+        manager = instance()
+        repositories.setInspectionFilter(officialRepo[0])
+        try:
+            manager.fetchAvailablePlugins(reloadMode=True)
+        finally:
+            repositories.setInspectionFilter()
+        available = installer_plugins.all()
+        candidate = available.get(package)
+        if candidate is None:
+            raise KeyError("Plugin is not available from an enabled QGIS repository")
+        if candidate.get("zip_repository") != officialRepo[0]:
+            raise ValueError("MCP installation is restricted to the official QGIS repository")
+        if candidate.get("deprecated"):
+            raise ValueError("Deprecated plugins cannot be installed through MCP")
+        if not candidate.get("trusted") and not allow_untrusted:
+            raise ValueError("Untrusted plugin installation requires extra confirmation")
+        version_key = (
+            "version_available_experimental" if experimental else "version_available_stable"
+        )
+        available_version = str(candidate.get(version_key) or candidate.get("version_available") or "")
+        if expected_version and available_version != str(expected_version):
+            raise ValueError(
+                "Plugin proposal is stale: expected {}, repository now offers {}".format(
+                    expected_version, available_version or "an unknown version"
+                )
+            )
+        manager.installPlugin(package, quiet=True, stable=not bool(experimental))
+        qgis.utils.updateAvailablePlugins()
+        if package not in qgis.utils.available_plugins:
+            raise RuntimeError("QGIS did not report the plugin as installed")
+        installed_version = str(qgis.utils.pluginMetadata(package, "version") or "")
+        if expected_version and installed_version != str(expected_version):
+            raise RuntimeError(
+                "QGIS installed version {} instead of the confirmed version {}".format(
+                    installed_version or "unknown", expected_version
+                )
+            )
 
     def settings(
         self,
@@ -837,30 +923,87 @@ class EcosystemTools:
         return matches[0]
 
     @staticmethod
-    def _plugins(query, limit):
+    def _plugins(query, limit, compact=False):
         qgis.utils.updateAvailablePlugins()
         packages = sorted(set(qgis.utils.available_plugins) | set(qgis.utils.plugins))
-        query = str(query or "").casefold()
+        query = str(query or "").casefold().strip()
+        query_tokens = {
+            token
+            for token in re.findall(r"[a-z0-9]+", query)
+            if len(token) > 2
+        }
         items = []
         for package in packages:
             metadata = {
                 key: qgis.utils.pluginMetadata(package, key)
-                for key in ("name", "description", "version", "author", "category", "experimental")
+                for key in (
+                    "name",
+                    "description",
+                    "about",
+                    "version",
+                    "author",
+                    "category",
+                    "tags",
+                    "experimental",
+                    "deprecated",
+                    "homepage",
+                    "repository",
+                    "tracker",
+                    "qgisMinimumVersion",
+                    "qgisMaximumVersion",
+                    "external_dependencies",
+                    "plugin_dependencies",
+                    "update_date",
+                )
             }
-            haystack = "{} {} {}".format(package, metadata["name"], metadata["description"])
-            if query and query not in haystack.casefold():
+            haystack = "{} {} {} {} {} {}".format(
+                package,
+                metadata["name"],
+                metadata["description"],
+                metadata["about"],
+                metadata["tags"],
+                metadata["category"],
+            )
+            normalized_haystack = haystack.casefold()
+            matched_tokens = query_tokens & set(re.findall(r"[a-z0-9]+", normalized_haystack))
+            if query and query not in normalized_haystack and not matched_tokens:
                 continue
+            if compact:
+                metadata = {
+                    "name": metadata["name"],
+                    "description": _bounded_text(metadata["description"], 300),
+                    "about": _bounded_text(metadata["about"], 500),
+                    "version": metadata["version"],
+                    "tags": _bounded_text(metadata["tags"], 200),
+                    "category": metadata["category"],
+                    "experimental": metadata["experimental"],
+                    "deprecated": metadata["deprecated"],
+                    "plugin_dependencies": _bounded_text(
+                        metadata["plugin_dependencies"], 200
+                    ),
+                }
             items.append(
                 {
                     "package": package,
                     "loaded": package in qgis.utils.plugins,
                     "active": package in qgis.utils.active_plugins,
                     "metadata": metadata,
+                    "relevance": len(matched_tokens) + (3 if query and query in normalized_haystack else 0),
                 }
             )
-            if len(items) >= max(1, min(int(limit), 1000)):
-                break
-        return {"plugins": items, "count": len(items)}
+        items.sort(
+            key=lambda item: (
+                -int(item["relevance"]),
+                not bool(item["active"]),
+                str(item["package"]).casefold(),
+            )
+        )
+        items = items[: max(1, min(int(limit), 1000))]
+        return {
+            "plugins": items,
+            "count": len(items),
+            "qgis_version": Qgis.QGIS_VERSION,
+        }
 
     @staticmethod
     def _gps(registry, include_ports=False):

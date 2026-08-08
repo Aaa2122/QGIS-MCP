@@ -1,0 +1,51 @@
+name: Feature request
+description: Propose an implementation-ready improvement
+title: "[Feature]: "
+labels: ["enhancement", "status: needs triage"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: Describe the QGIS workflow or agent limitation, not only the desired implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: What should a user or agent be able to accomplish?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed approach
+      description: Include candidate tools, schemas, safety controls or MCP behaviour if known.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: dropdown
+    id: area
+    attributes:
+      label: Primary area
+      options:
+        - MCP protocol and context
+        - QGIS project and layers
+        - Processing and data
+        - Cartography and layouts
+        - Plugins and ecosystem
+        - Reliability and security
+        - Documentation and onboarding
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing Issues and Discussions for duplicates.
+          required: true
+        - label: The proposal does not require exposing arbitrary Python execution.
+          required: true

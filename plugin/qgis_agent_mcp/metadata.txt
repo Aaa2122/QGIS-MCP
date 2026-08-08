@@ -1,7 +1,7 @@
 [general]
 name=QGIS Agent MCP
 description=Connect AI agents to QGIS through a secure, one-click local MCP bridge
-version=0.4.7
+version=0.4.9
 qgisMinimumVersion=3.44
 qgisMaximumVersion=4.99
 author=Aaa2122
@@ -20,7 +20,9 @@ homepage=https://github.com/Aaa2122/QGIS-MCP
 repository=https://github.com/Aaa2122/QGIS-MCP
 tracker=https://github.com/Aaa2122/QGIS-MCP/issues
 icon=icon.png
-changelog=0.4.7 - MCP 2025-11-25, cancellable requests, structured tool errors, context-budgeted results, enriched tool schemas, federated discovery, paged resources and fair scheduling.
+changelog=0.4.9 - Task-conditioned context packs, progressive schemas, declarative result pipelines, MCP 2026-07-28 dual-era support, durable MCP Tasks and append-only diagnostics.
+    0.4.8 - Task-aware plugin discovery, official-catalog recommendations, risk ranking and confirmation-gated installation.
+    0.4.7 - MCP 2025-11-25, cancellable requests, structured tool errors, context-budgeted results, enriched tool schemas, federated discovery, paged resources and fair scheduling.
     0.4.6 - QGIS 4 and Qt 6 support.
     0.4.5 - Priority bridge scheduling, incremental session state, protocol-correct resource subscriptions, cursor queries and cached capability discovery.
     0.4.4 - Persistent crash diagnostics, bounded blocking operations, safer workflows and isolated launcher environments.

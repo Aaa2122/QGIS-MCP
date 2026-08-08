@@ -43,6 +43,56 @@ class FakeBridge:
         return {"method": method, "params": params}
 
 
+class FakePluginAdvisor:
+    def __init__(self):
+        self.calls = []
+        self.completed = []
+
+    def recommend(
+        self,
+        task,
+        qgis_version,
+        installed,
+        native_matches,
+        **kwargs,
+    ):
+        self.calls.append(("recommend", task, qgis_version, installed, native_matches, kwargs))
+        return {
+            "task": task,
+            "native_matches": native_matches,
+            "installed_matches": [],
+            "recommendations": [{"package": "QuickOSM"}],
+        }
+
+    def validate_proposal(
+        self,
+        proposal_id,
+        package,
+        *,
+        confirm_installation,
+        confirm_untrusted,
+        idempotency_key=None,
+    ):
+        if proposal_id != "qp_valid" or package != "QuickOSM":
+            raise ValueError("A current proposal_id is required")
+        if not confirm_installation:
+            raise ValueError("Explicit user confirmation is required")
+        if not confirm_untrusted:
+            raise ValueError("extra user confirmation is required")
+        return {
+            "package": package,
+            "version": "2.0",
+            "trusted": False,
+            "experimental": False,
+        }
+
+    def complete_proposal(self, proposal_id, idempotency_key=None):
+        self.completed.append((proposal_id, idempotency_key))
+
+    def status(self):
+        return {"source": "official", "active_installation_proposals": 0}
+
+
 @pytest.mark.asyncio
 async def test_initialize_and_catalog():
     server = McpServer(FakeBridge())
@@ -202,6 +252,137 @@ async def test_processing_search_federates_live_algorithms_and_keeps_partial_res
     assert result["runtime_matches"][0]["id"] == "gdal:slope"
     assert result["runtime_matches"][0]["call"]["arguments"]["algorithm"] == "gdal:slope"
     assert result["runtime_schema_warning"]["code"] == -32002
+
+
+@pytest.mark.asyncio
+async def test_plugin_advisor_combines_qgis_inventory_and_native_matches():
+    class PluginBridge(FakeBridge):
+        async def request(self, method, params, **kwargs):
+            self.calls.append((method, params))
+            if method == "ecosystem.plugins":
+                return {
+                    "qgis_version": "3.44.12",
+                    "plugins": [
+                        {
+                            "package": "QuickMapServices",
+                            "active": True,
+                            "metadata": {"name": "QuickMapServices"},
+                        }
+                    ],
+                }
+            if method == "capabilities.search":
+                return {
+                    "results": [
+                        {
+                            "kind": "processing",
+                            "id": "native:downloadosm",
+                            "name": "Download OSM buildings",
+                            "group": "Vector acquisition",
+                            "relevance": 100,
+                            "matched_terms": ["buildings", "download"],
+                        }
+                    ]
+                }
+            return await super().request(method, params, **kwargs)
+
+    bridge = PluginBridge()
+    advisor = FakePluginAdvisor()
+    response = await McpServer(bridge, plugin_advisor=advisor).dispatch(
+        {
+            "jsonrpc": "2.0",
+            "id": 92,
+            "method": "tools/call",
+            "params": {
+                "name": "qgis_plugin_advisor",
+                "arguments": {
+                    "action": "recommend",
+                    "task": "download OpenStreetMap buildings",
+                },
+            },
+        }
+    )
+    result = response["result"]["structuredContent"]
+    assert result["recommendations"] == [{"package": "QuickOSM"}]
+    call = advisor.calls[0]
+    assert call[2] == "3.44.12"
+    assert call[3][0]["package"] == "QuickMapServices"
+    assert all(item["name"] != "qgis_plugin_advisor" for item in call[4])
+    assert call[4][0]["id"] == "native:downloadosm"
+    assert call[4][0]["call"]["tool"] == "qgis_processing_start"
+    assert bridge.calls[0] == (
+        "ecosystem.plugins",
+        {
+            "action": "list",
+            "query": "download OpenStreetMap buildings",
+            "limit": 50,
+            "compact": True,
+        },
+    )
+
+
+@pytest.mark.asyncio
+async def test_plugin_installation_requires_current_proposal_and_two_confirmations():
+    class PluginBridge(FakeBridge):
+        async def request(self, method, params, **kwargs):
+            self.calls.append((method, params))
+            return {"installed": params.get("plugin"), "active": True}
+
+    bridge = PluginBridge()
+    advisor = FakePluginAdvisor()
+    server = McpServer(bridge, plugin_advisor=advisor)
+    base = {
+        "action": "install",
+        "plugin": "QuickOSM",
+        "proposal_id": "qp_valid",
+    }
+    rejected = await server.dispatch(
+        {
+            "jsonrpc": "2.0",
+            "id": 93,
+            "method": "tools/call",
+            "params": {"name": "qgis_plugins", "arguments": base},
+        }
+    )
+    assert rejected["result"]["isError"] is True
+    assert bridge.calls == []
+
+    preview = await server.dispatch(
+        {
+            "jsonrpc": "2.0",
+            "id": 96,
+            "method": "tools/call",
+            "params": {
+                "name": "qgis_plugins",
+                "arguments": {**base, "dry_run": True},
+            },
+        }
+    )
+    assert preview["result"]["structuredContent"]["installed"] == "QuickOSM"
+    assert advisor.completed == []
+
+    accepted = await server.dispatch(
+        {
+            "jsonrpc": "2.0",
+            "id": 94,
+            "method": "tools/call",
+            "params": {
+                "name": "qgis_plugins",
+                "arguments": {
+                    **base,
+                    "confirm_installation": True,
+                    "confirm_untrusted": True,
+                },
+            },
+        }
+    )
+    assert accepted["result"]["structuredContent"]["installed"] == "QuickOSM"
+    method, forwarded = bridge.calls[-1]
+    assert method == "ecosystem.plugins"
+    assert forwarded["confirmed"] is True
+    assert forwarded["expected_version"] == "2.0"
+    assert forwarded["allow_untrusted"] is True
+    assert "proposal_id" not in forwarded
+    assert advisor.completed == [("qp_valid", None)]
 
 
 @pytest.mark.asyncio
