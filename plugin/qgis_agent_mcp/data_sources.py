@@ -7,12 +7,14 @@ from urllib.parse import quote, urlsplit
 
 from qgis.core import (
     QgsBlockingNetworkRequest,
+    QgsFeedback,
     QgsNetworkReplyContent,
+    QgsPointCloudLayer,
     QgsProject,
     QgsRasterLayer,
     QgsVectorLayer,
 )
-from qgis.PyQt.QtCore import QByteArray, QUrl
+from qgis.PyQt.QtCore import QByteArray, QTimer, QUrl
 from qgis.PyQt.QtNetwork import QNetworkRequest
 
 from .autonomy import DataCache, NetworkPolicy, PolicyError, redact_url, safe_extract_zip
@@ -21,6 +23,7 @@ from .serialize import layer_summary
 DEFAULT_MAX_DOWNLOAD_BYTES = 64 * 1024 * 1024
 VECTOR_EXTENSIONS = {".csv", ".geojson", ".gpkg", ".json", ".kml", ".shp", ".gml"}
 RASTER_EXTENSIONS = {".tif", ".tiff", ".vrt", ".jp2", ".asc", ".img"}
+POINT_CLOUD_EXTENSIONS = {".las", ".laz"}
 
 
 class DataAcquisitionManager:
@@ -46,12 +49,16 @@ class DataAcquisitionManager:
         delimiter=",",
         crs="EPSG:4326",
         secret_values=None,
+        timeout_seconds=30,
     ):
         if cache_mode not in {"reuse", "refresh"}:
             raise ValueError("cache_mode must be reuse or refresh")
         max_bytes = int(max_bytes)
         if not 1 <= max_bytes <= 256 * 1024 * 1024:
             raise PolicyError("max_bytes must be between 1 and 268435456")
+        timeout_seconds = int(timeout_seconds)
+        if not 1 <= timeout_seconds <= 300:
+            raise PolicyError("timeout_seconds must be between 1 and 300")
         validated = self.policy.validate(url)
         redacted = redact_url(validated, secret_values)
         cached = None
@@ -65,6 +72,7 @@ class DataAcquisitionManager:
                 max_bytes,
                 expected_sha256,
                 secret_values,
+                timeout_seconds,
             )
         result = {"download": cached, "source_url": redacted}
         if add_to_project:
@@ -165,14 +173,48 @@ class DataAcquisitionManager:
     @staticmethod
     def catalog():
         return {
-            "downloads": sorted(VECTOR_EXTENSIONS | RASTER_EXTENSIONS | {".zip"}),
+            "downloads": sorted(
+                VECTOR_EXTENSIONS
+                | RASTER_EXTENSIONS
+                | POINT_CLOUD_EXTENSIONS
+                | {".zip"}
+            ),
+            "point_clouds": {
+                "extensions": sorted(POINT_CLOUD_EXTENSIONS),
+                "provider": "pdal",
+                "processing_filter": {
+                    "algorithm": "pdal:filter",
+                    "classification_example": '"Classification" = 2',
+                    "note": "Use QGIS expressions through Processing; no PDAL CLI pipeline is required.",
+                },
+                "pdal_cli_compatibility": {
+                    "preferred_mcp_route": "Use qgis_processing_start with installed pdal:* algorithms.",
+                    "known_constraints": [
+                        "pdal info --summary must not be combined with --metadata.",
+                        "Classification filtering through raw pdal translate requires a JSON pipeline with filters.range; --filter is not a stage type.",
+                        "Use forward slashes in JSON pipeline paths on Windows.",
+                        "Do not assume filters.count is present; inspect the installed PDAL build first.",
+                    ],
+                },
+            },
             "services": ["xyz", "wms", "wmts", "wfs", "arcgis_featureserver", "arcgis_mapserver"],
             "authentication": "Use a QGIS authcfg ID; credentials are never returned.",
-            "limits": {"default_max_download_bytes": DEFAULT_MAX_DOWNLOAD_BYTES},
+            "limits": {
+                "default_max_download_bytes": DEFAULT_MAX_DOWNLOAD_BYTES,
+                "default_timeout_seconds": 30,
+                "maximum_timeout_seconds": 300,
+            },
         }
 
     def _download(
-        self, url, redacted, authcfg, max_bytes, expected_sha256, secret_values=None
+        self,
+        url,
+        redacted,
+        authcfg,
+        max_bytes,
+        expected_sha256,
+        secret_values=None,
+        timeout_seconds=30,
     ):
         network = QgsBlockingNetworkRequest()
         if authcfg:
@@ -182,7 +224,19 @@ class DataAcquisitionManager:
         request.setRawHeader(
             QByteArray(b"User-Agent"), QByteArray(b"QGIS-Agent-MCP/0.4")
         )
-        error = network.get(request, True)
+        feedback = QgsFeedback()
+        timer = QTimer()
+        timer.setSingleShot(True)
+        timer.timeout.connect(feedback.cancel)
+        timer.start(int(timeout_seconds) * 1000)
+        try:
+            error = network.get(request, True, feedback)
+        finally:
+            timer.stop()
+        if feedback.isCanceled():
+            raise RuntimeError(
+                "Data download timed out after {} seconds".format(timeout_seconds)
+            )
         if error != QgsBlockingNetworkRequest.ErrorCode.NoError:
             message = network.errorMessage()
             message = message.replace(url, redacted)
@@ -243,7 +297,8 @@ class DataAcquisitionManager:
         loadable = [
             candidate
             for candidate in candidates
-            if candidate.suffix.casefold() in VECTOR_EXTENSIONS | RASTER_EXTENSIONS
+            if candidate.suffix.casefold()
+            in VECTOR_EXTENSIONS | RASTER_EXTENSIONS | POINT_CLOUD_EXTENSIONS
         ]
         if not loadable:
             raise ValueError("Download contains no supported spatial dataset")
@@ -266,6 +321,10 @@ class DataAcquisitionManager:
                 created = QgsVectorLayer(uri.toString(), layer_name, "delimitedtext")
             elif suffix in RASTER_EXTENSIONS:
                 created = QgsRasterLayer(str(candidate), layer_name, provider or "gdal")
+            elif suffix in POINT_CLOUD_EXTENSIONS:
+                created = QgsPointCloudLayer(
+                    str(candidate), layer_name, provider or "pdal"
+                )
             else:
                 created = QgsVectorLayer(str(candidate), layer_name, provider or "ogr")
             if not created.isValid():

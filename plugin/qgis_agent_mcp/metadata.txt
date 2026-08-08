@@ -1,12 +1,12 @@
 [general]
 name=QGIS Agent MCP
 description=Connect AI agents to QGIS through a secure, one-click local MCP bridge
-version=0.4.3
+version=0.4.9
 qgisMinimumVersion=3.44
-qgisMaximumVersion=3.99
+qgisMaximumVersion=4.99
 author=Aaa2122
 email=96547921+Aaa2122@users.noreply.github.com
-about=Connect Codex, Claude Code and other MCP clients to a live QGIS Desktop session.
+about=Connect OpenCode, Codex, Claude Code, Cursor, Google Antigravity and other MCP clients to a live QGIS Desktop session.
     Requires a local MCP-compatible AI client; no additional Python package or cloud account is needed.
     Access 100+ typed specialist tools while an adaptive catalog keeps the default context small.
     Run guarded, resumable workflows with restart recovery and visual map review.
@@ -20,4 +20,10 @@ homepage=https://github.com/Aaa2122/QGIS-MCP
 repository=https://github.com/Aaa2122/QGIS-MCP
 tracker=https://github.com/Aaa2122/QGIS-MCP/issues
 icon=icon.png
-changelog=0.4.3 - Zero Bandit findings, no scanner overrides and Qt6-scoped enums.
+changelog=0.4.9 - Task-conditioned context packs, progressive schemas, declarative result pipelines, MCP 2026-07-28 dual-era support, durable MCP Tasks and append-only diagnostics.
+    0.4.8 - Task-aware plugin discovery, official-catalog recommendations, risk ranking and confirmation-gated installation.
+    0.4.7 - MCP 2025-11-25, cancellable requests, structured tool errors, context-budgeted results, enriched tool schemas, federated discovery, paged resources and fair scheduling.
+    0.4.6 - QGIS 4 and Qt 6 support.
+    0.4.5 - Priority bridge scheduling, incremental session state, protocol-correct resource subscriptions, cursor queries and cached capability discovery.
+    0.4.4 - Persistent crash diagnostics, bounded blocking operations, safer workflows and isolated launcher environments.
+    0.4.3 - Zero Bandit findings, no scanner overrides and Qt6-scoped enums.

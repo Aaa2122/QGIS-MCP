@@ -1,0 +1,19 @@
+cff-version: 1.2.0
+message: "If QGIS Agent MCP supports your work, please cite the software using this metadata."
+title: "QGIS Agent MCP"
+type: software
+authors:
+  - family-names: Sagaert
+    given-names: Auguste
+version: 0.4.9
+date-released: 2026-08-08
+license: MIT
+repository-code: "https://github.com/Aaa2122/QGIS-MCP"
+url: "https://github.com/Aaa2122/QGIS-MCP"
+abstract: "A secure local Model Context Protocol bridge connecting AI agents to a live QGIS Desktop session."
+keywords:
+  - QGIS
+  - Model Context Protocol
+  - geospatial
+  - agents
+  - cartography

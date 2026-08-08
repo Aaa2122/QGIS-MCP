@@ -370,9 +370,35 @@ class ProjectTools:
             return {"items": [{key: value for key, value in item.items() if key != "search"} for item in matches[: min(int(limit), 100)]]}
         if action == "assign_layer":
             target_layer = self.layer_resolver(layer)
-            target_layer.setCrs(_crs(target))
+            current = target_layer.crs()
+            if target is None:
+                if not current.isValid():
+                    raise ValueError(
+                        "target is required because the layer has no valid coordinate reference system"
+                    )
+                return {
+                    **layer_summary(target_layer),
+                    "assignment": {
+                        "changed": False,
+                        "reason": "layer_already_has_valid_crs",
+                        "source": "layer_or_point_cloud_header",
+                    },
+                }
+            requested = _crs(target)
+            if current.isValid() and current == requested:
+                return {
+                    **layer_summary(target_layer),
+                    "assignment": {"changed": False, "reason": "crs_already_matches"},
+                }
+            target_layer.setCrs(requested)
+            assigned = target_layer.crs()
+            if not assigned.isValid() or assigned != requested:
+                raise RuntimeError("QGIS did not apply the requested layer CRS")
             self.state.touch("layer.crs", {"layer_id": target_layer.id()})
-            return layer_summary(target_layer)
+            return {
+                **layer_summary(target_layer),
+                "assignment": {"changed": True, "reason": "explicit_assignment"},
+            }
         transform = QgsCoordinateTransform(_crs(source), _crs(target), QgsProject.instance())
         if action == "transform_points":
             if not isinstance(points, list):

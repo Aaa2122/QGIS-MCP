@@ -48,7 +48,7 @@ class WorkflowManager(QObject):
         enabled=False,
         atomic=True,
         resume=False,
-        resume_on_restart=True,
+        resume_on_restart=False,
     ):
         if action == "create":
             return self.create(
@@ -82,12 +82,12 @@ class WorkflowManager(QObject):
         interval_seconds=None,
         enabled=False,
         atomic=True,
-        resume_on_restart=True,
+        resume_on_restart=False,
     ):
         if not name:
             raise ValueError("name is required")
-        if not isinstance(steps, list) or not steps or len(steps) > 100:
-            raise ValueError("steps must contain between 1 and 100 calls")
+        if not isinstance(steps, list) or not steps or len(steps) > 25:
+            raise ValueError("steps must contain between 1 and 25 calls")
         normalized = []
         for index, step in enumerate(steps):
             if not isinstance(step, dict) or not step.get("method"):
@@ -114,6 +114,7 @@ class WorkflowManager(QObject):
             "next_run_at": now if enabled else None,
             "atomic": bool(atomic),
             "resume_on_restart": bool(resume_on_restart),
+            "stability_version": 1,
             "steps": normalized,
             "status": "ready",
             "current_step": 0,
@@ -214,8 +215,10 @@ class WorkflowManager(QObject):
 
     def resume_interrupted(self):
         for workflow in self._all():
-            if workflow.get("status") != "interrupted" or not workflow.get(
-                "resume_on_restart", True
+            if (
+                workflow.get("status") != "interrupted"
+                or int(workflow.get("stability_version", 0)) < 1
+                or not workflow.get("resume_on_restart", False)
             ):
                 continue
             try:
@@ -235,8 +238,15 @@ class WorkflowManager(QObject):
                 continue
             workflow["status"] = "interrupted"
             workflow["interrupted_at"] = time.time()
+            if workflow.get("enabled"):
+                workflow["enabled"] = False
+                workflow["next_run_at"] = None
+                workflow["paused_after_interruption"] = True
             self._save(workflow)
-            recoverable = recoverable or workflow.get("resume_on_restart", True)
+            recoverable = recoverable or (
+                int(workflow.get("stability_version", 0)) >= 1
+                and workflow.get("resume_on_restart", False)
+            )
         return recoverable
 
     def run_due(self):

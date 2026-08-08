@@ -35,7 +35,7 @@ class QgisAgentMcpPlugin:
                 self.iface.mainWindow(),
             )
             self.connect_action.setToolTip(
-                "Automatically connect Codex, Claude Code, or another MCP client"
+                "Automatically connect OpenCode, Codex, Claude Code, or another MCP client"
             )
             self.connect_action.triggered.connect(self._show_connect_dialog)
             self.iface.addPluginToMenu("&QGIS Agent MCP", self.status_action)

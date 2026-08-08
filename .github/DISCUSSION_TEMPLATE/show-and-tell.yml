@@ -1,0 +1,20 @@
+title: "[Showcase] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Share a map, workflow or integration built with QGIS Agent MCP. Use only data and images you are allowed to publish.
+  - type: textarea
+    id: result
+    attributes:
+      label: What did you build?
+    validations:
+      required: true
+  - type: textarea
+    id: process
+    attributes:
+      label: How was QGIS Agent MCP used?
+  - type: textarea
+    id: lessons
+    attributes:
+      label: Lessons, prompts or reusable techniques
