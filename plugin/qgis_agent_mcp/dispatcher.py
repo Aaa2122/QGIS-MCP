@@ -40,6 +40,13 @@ from .authoring_tools import AuthoringTools
 from .capabilities import CapabilityIndex, ObjectRegistry
 from .cartography import CartographyManager, LayoutManager, ProjectLayerManager
 from .connectors import FireMapManager
+from .context_pipeline import (
+    capture_value,
+    resolve_references,
+    select_value,
+    summarize,
+    validate_variable,
+)
 from .data_sources import DataAcquisitionManager
 from .ecosystem_tools import EcosystemTools
 from .operations import OperationManager
@@ -1363,13 +1370,24 @@ class Dispatcher:
     def connector_catalog(self):
         return {"connectors": [self.fire_maps.catalog()]}
 
-    def batch_execute(self, calls, continue_on_error=False, atomic=False):
+    def batch_execute(
+        self,
+        calls,
+        continue_on_error=False,
+        atomic=False,
+        outputs=None,
+        return_mode="steps",
+    ):
         if not isinstance(calls, list) or not 1 <= len(calls) <= 25:
             raise ValueError("calls must contain between 1 and 25 items")
         if any(not isinstance(call, dict) for call in calls):
             raise ValueError("Every batch call must be an object")
         if any(call.get("method") == "batch.execute" for call in calls):
             raise ValueError("Nested batches are not supported")
+        if return_mode not in {"steps", "outputs", "summary"}:
+            raise ValueError("return_mode must be steps, outputs, or summary")
+        if outputs is not None and not isinstance(outputs, dict):
+            raise ValueError("outputs must be an object")
         preflight = self.runtime_tools.preflight(calls)
         if not preflight["valid"]:
             raise ValueError("Batch preflight failed: {}".format(preflight["errors"]))
@@ -1377,25 +1395,43 @@ class Dispatcher:
         if atomic and preflight["mutation_count"]:
             checkpoint = self.checkpoints.create("Atomic batch", internal=True)
         results = []
+        variables = {}
         rolled_back = False
         try:
             for index, call in enumerate(calls):
                 method = call.get("method")
                 try:
-                    results.append(
-                        {
-                            "index": index,
-                            "result": self.dispatch(method, call.get("params") or {}),
-                        }
+                    params = resolve_references(call.get("params") or {}, variables)
+                    raw_result = self.dispatch(method, params)
+                    selected = select_value(raw_result, call.get("select"))
+                    automatic_name = "step_{}".format(index)
+                    variables[automatic_name] = selected
+                    if call.get("save_as"):
+                        variables[validate_variable(call["save_as"])] = selected
+                    captured, value = capture_value(
+                        selected, call.get("capture", "full"), self.handles
                     )
-                except DispatchError as exc:
+                    entry = {
+                        "index": index,
+                        "method": method,
+                        "ok": True,
+                        "capture": call.get("capture", "full"),
+                    }
+                    if call.get("save_as"):
+                        entry["saved_as"] = call["save_as"]
+                    if captured:
+                        entry["result"] = value
+                    results.append(entry)
+                except (DispatchError, KeyError, TypeError, ValueError) as exc:
                     results.append(
                         {
                             "index": index,
+                            "method": method,
+                            "ok": False,
                             "error": {
-                                "code": exc.code,
-                                "message": exc.message,
-                                "data": exc.data,
+                                "code": getattr(exc, "code", -32602),
+                                "message": getattr(exc, "message", str(exc)),
+                                "data": getattr(exc, "data", None),
                             },
                         }
                     )
@@ -1407,8 +1443,11 @@ class Dispatcher:
         finally:
             if checkpoint:
                 self.checkpoints.delete(checkpoint["checkpoint_id"])
-        return {
-            "results": results,
+        projected = {
+            str(name): resolve_references(reference, variables)
+            for name, reference in (outputs or {}).items()
+        }
+        response = {
             "completed": len(results),
             "requested": len(calls),
             "atomic": bool(atomic),
@@ -1418,6 +1457,13 @@ class Dispatcher:
                 "qgz" if checkpoint else "none_read_only" if atomic else "none"
             ),
         }
+        if outputs is not None:
+            response["outputs"] = projected
+        if return_mode == "steps":
+            response["results"] = results
+        elif return_mode == "summary":
+            response["results"] = [summarize(item) for item in results]
+        return response
 
     def runtime_control(self, **params):
         return self.runtime_tools.runtime(**params)
@@ -1588,7 +1634,21 @@ class Dispatcher:
         return self.specialized_data_tools.elevation(**params)
 
     def ecosystem_plugins(self, **params):
-        return self.ecosystem_tools.plugins(**params)
+        result = self.ecosystem_tools.plugins(**params)
+        if params.get("action") in {
+            "enable",
+            "disable",
+            "reload",
+            "install",
+            "refresh_catalog",
+        }:
+            if params.get("action") == "install":
+                capability_index = self.capabilities.reindex()
+                if isinstance(result, dict):
+                    result["capability_index"] = capability_index
+            else:
+                self.capabilities.invalidate()
+        return result
 
     def ecosystem_settings(self, **params):
         return self.ecosystem_tools.settings(**params)

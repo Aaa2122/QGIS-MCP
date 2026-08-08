@@ -78,6 +78,7 @@ SPECIALIZED_DATA_TOOLS = {
 }
 
 ECOSYSTEM_TOOLS = {
+    "qgis_plugin_advisor": "plugins.advise",
     "qgis_plugins": "ecosystem.plugins",
     "qgis_settings": "ecosystem.settings",
     "qgis_shortcuts": "ecosystem.shortcuts",

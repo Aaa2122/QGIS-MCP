@@ -19,13 +19,19 @@ class PersistentDiagnostics:
         self.path = Path(
             path or Path.home() / ".qgis-mcp" / "diagnostics.json"
         ).expanduser()
+        self.journal_path = self.path.with_suffix(self.path.suffix + ".journal")
         self.history_limit = max(10, int(history_limit))
         self.flush_interval_seconds = max(0.1, float(flush_interval_seconds))
         self._last_save = time.monotonic()
         self._dirty = False
         self._write_count = 0
+        self._journal_write_count = 0
+        self._journal_event_count = 0
         self._state = self._load()
-        self._previous_interruption = list(self._state.get("active") or [])
+        self._previous_interruption = [
+            {key: value for key, value in item.items() if key != "_durable"}
+            for item in (self._state.get("active") or [])
+        ]
         if self._previous_interruption:
             self._state.setdefault("history", []).append(
                 {
@@ -53,7 +59,11 @@ class PersistentDiagnostics:
         self._state.setdefault("active", []).append(entry)
         self._dirty = True
         if durable:
-            self._save()
+            self._append_journal(
+                "begin",
+                {key: value for key, value in entry.items() if key != "_durable"},
+                sync=True,
+            )
         return token
 
     def finish(self, token, status, exception=None, durable=None):
@@ -79,7 +89,7 @@ class PersistentDiagnostics:
         self._state["history"] = history[-self.history_limit :]
         self._dirty = True
         if durable:
-            self._save()
+            self._append_journal("finish", finished, sync=False)
         else:
             self._maybe_save()
 
@@ -97,6 +107,8 @@ class PersistentDiagnostics:
             "parameter_values_persisted": False,
             "batched_writes": True,
             "write_count": self._write_count,
+            "journal_write_count": self._journal_write_count,
+            "storage": "append_only_journal",
         }
 
     def flush(self):
@@ -108,16 +120,68 @@ class PersistentDiagnostics:
             self._save()
 
     def _load(self):
+        state = {"version": 2, "active": [], "history": []}
         try:
             value = json.loads(self.path.read_text(encoding="utf-8"))
             if isinstance(value, dict):
-                value.setdefault("version", 1)
+                value.setdefault("version", 2)
                 value.setdefault("active", [])
                 value.setdefault("history", [])
-                return value
+                state = value
         except (OSError, ValueError, json.JSONDecodeError):
             pass
-        return {"version": 1, "active": [], "history": []}
+        for entry in state.get("active", []):
+            if isinstance(entry, dict):
+                entry["_durable"] = True
+        try:
+            lines = self.journal_path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            lines = []
+        for line in lines:
+            try:
+                event = json.loads(line)
+            except (ValueError, json.JSONDecodeError):
+                continue
+            self._replay_event(state, event)
+            self._journal_event_count += 1
+        if self._journal_event_count:
+            self._dirty = True
+        return state
+
+    @staticmethod
+    def _replay_event(state, event):
+        operation = event.get("op")
+        entry = event.get("entry")
+        if not isinstance(entry, dict) or not entry.get("id"):
+            return
+        token = entry["id"]
+        active = state.setdefault("active", [])
+        history = state.setdefault("history", [])
+        if operation == "begin":
+            if any(item.get("id") == token for item in active + history):
+                return
+            active.append({**entry, "_durable": True})
+        elif operation == "finish":
+            active[:] = [item for item in active if item.get("id") != token]
+            if not any(item.get("id") == token for item in history):
+                history.append(entry)
+
+    def _append_journal(self, operation, entry, *, sync):
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            event = {"op": operation, "entry": entry}
+            with self.journal_path.open("a", encoding="utf-8") as stream:
+                stream.write(json.dumps(event, ensure_ascii=False, separators=(",", ":")))
+                stream.write("\n")
+                stream.flush()
+                if sync:
+                    os.fsync(stream.fileno())
+            self._journal_write_count += 1
+            self._journal_event_count += 1
+            if self._journal_event_count >= 256:
+                self._save()
+        except OSError:
+            return
 
     def _save(self):
         try:
@@ -137,9 +201,14 @@ class PersistentDiagnostics:
                 with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
                     json.dump(persisted, stream, ensure_ascii=False, separators=(",", ":"))
                 os.replace(temporary, self.path)
+                try:
+                    self.journal_path.unlink()
+                except OSError:
+                    pass
                 self._dirty = False
                 self._last_save = time.monotonic()
                 self._write_count += 1
+                self._journal_event_count = 0
             finally:
                 if os.path.exists(temporary):
                     os.unlink(temporary)

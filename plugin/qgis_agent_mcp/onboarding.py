@@ -775,7 +775,7 @@ def health_check(spec, timeout=15, event_pump=None):
             "params": {
                 "protocolVersion": "2025-11-25",
                 "capabilities": {},
-                "clientInfo": {"name": "qgis-onboarding", "version": "0.4.7"},
+                "clientInfo": {"name": "qgis-onboarding", "version": "0.4.9"},
             },
         },
         {

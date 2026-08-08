@@ -83,3 +83,22 @@ def test_read_only_diagnostics_batch_disk_writes(tmp_path):
     diagnostics.flush()
     assert diagnostics._write_count == 1
     assert path.exists()
+
+
+def test_mutation_diagnostics_use_append_only_journal_until_compaction(tmp_path):
+    path = tmp_path / "diagnostics.json"
+    diagnostics = PersistentDiagnostics(path)
+    token = diagnostics.begin("project.action", {"path": "secret.gpkg"}, durable=True)
+    diagnostics.finish(token, "succeeded", durable=True)
+
+    assert diagnostics._write_count == 0
+    assert diagnostics._journal_write_count == 2
+    assert diagnostics.journal_path.is_file()
+    assert not path.exists()
+    assert "secret.gpkg" not in diagnostics.journal_path.read_text(encoding="utf-8")
+
+    recovered = PersistentDiagnostics(path)
+    assert recovered.previous_interruption == []
+    assert recovered.snapshot()["history"][-1]["status"] == "succeeded"
+    assert path.is_file()
+    assert not diagnostics.journal_path.exists()

@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Q&A and setup support
+    url: https://github.com/Aaa2122/QGIS-MCP/discussions/categories/q-a
+    about: Ask installation, configuration and usage questions in Discussions.
+  - name: Early feature ideas
+    url: https://github.com/Aaa2122/QGIS-MCP/discussions/categories/ideas
+    about: Explore an idea with the community before opening an implementation request.
+  - name: Private security report
+    url: https://github.com/Aaa2122/QGIS-MCP/security/advisories/new
+    about: Report vulnerabilities privately. Never disclose them in a public Issue.

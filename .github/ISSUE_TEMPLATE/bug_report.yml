@@ -1,0 +1,77 @@
+name: Bug report
+description: Report a reproducible problem in QGIS Agent MCP
+title: "[Bug]: "
+labels: ["bug", "status: needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for helping improve QGIS Agent MCP. Remove credentials, private paths and sensitive project data before submitting.
+  - type: input
+    id: plugin-version
+    attributes:
+      label: QGIS Agent MCP version
+      placeholder: "0.4.9"
+    validations:
+      required: true
+  - type: input
+    id: qgis-version
+    attributes:
+      label: QGIS version
+      placeholder: "3.44.12 or 4.x"
+    validations:
+      required: true
+  - type: dropdown
+    id: operating-system
+    attributes:
+      label: Operating system
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: client
+    attributes:
+      label: MCP client and version
+      placeholder: "Codex, Claude Code, Cursor, OpenCode, or another client"
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What happened, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Start from a blank or synthetic project whenever possible.
+      placeholder: |
+        1. Open a blank QGIS project
+        2. Add ...
+        3. Ask the client to ...
+        4. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Sanitized diagnostics
+      description: Include relevant error codes, tool names and parameter names. Do not paste tokens, URLs with credentials, private datasets or authentication databases.
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I reproduced this with the latest release.
+          required: true
+        - label: I removed credentials and sensitive project data.
+          required: true
+        - label: This is not a private security vulnerability.
+          required: true

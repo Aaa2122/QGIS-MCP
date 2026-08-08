@@ -848,6 +848,15 @@ class QgisRuntimeTest(unittest.TestCase):
             self.assertIn(
                 "qgis_agent_mcp", {item["package"] for item in plugins["plugins"]}
             )
+            self.assertTrue(plugins["qgis_version"])
+            with self.assertRaises(DispatchError) as install_rejected:
+                dispatcher.dispatch(
+                    "ecosystem.plugins",
+                    {"action": "install", "plugin": "QuickOSM"},
+                )
+            self.assertEqual(install_rejected.exception.code, -32602)
+            permissions = dispatcher.dispatch("runtime.permissions", {})
+            self.assertTrue(permissions["plugin_installation"]["proposal_required"])
             stored = dispatcher.dispatch(
                 "ecosystem.settings",
                 {"action": "set", "key": settings_key, "value": {"enabled": True}},

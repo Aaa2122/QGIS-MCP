@@ -115,6 +115,24 @@ class CapabilityIndex:
         self._plugin_cache_until = 0.0
         self._api_cache = {}
 
+    def invalidate(self):
+        self._processing_cache = []
+        self._processing_cache_until = 0.0
+        self._plugin_cache = []
+        self._plugin_cache_until = 0.0
+        self._api_cache = {}
+        return self.objects.refresh(force=True)
+
+    def reindex(self):
+        objects = self.invalidate()
+        processing = self._processing_items()
+        plugins = self._plugin_items()
+        return {
+            "processing_algorithms": len(processing),
+            "enabled_plugins": len(plugins),
+            "qgis_actions": sum(isinstance(obj, QAction) for obj in objects.values()),
+        }
+
     def _processing_items(self):
         now = time.monotonic()
         if now < self._processing_cache_until:
