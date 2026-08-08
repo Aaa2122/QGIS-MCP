@@ -64,7 +64,7 @@ jobs:
             qgis-ltr bash -lc "cd /workspace && bash scripts/run_qgis_ltr_tests.sh"
       - name: Upload latency baseline
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: qgis-ltr-latency
           path: benchmark-results/*.json
