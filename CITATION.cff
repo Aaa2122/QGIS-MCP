@@ -4,8 +4,8 @@ title: "QGIS Agent MCP"
 type: software
 authors:
   - name: QGIS Agent MCP contributors
-version: 0.4.9
-date-released: 2026-08-08
+version: 0.4.8
+date-released: 2026-08-12
 license: MIT
 repository-code: "https://github.com/Aaa2122/QGIS-MCP"
 url: "https://github.com/Aaa2122/QGIS-MCP"

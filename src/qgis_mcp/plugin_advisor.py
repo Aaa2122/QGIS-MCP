@@ -12,12 +12,14 @@ import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
-import xml.etree.ElementTree as ET
+import xml.etree.ElementTree as ET  # nosec B405 -- hardened by _safe_xml_text
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
 OFFICIAL_REPOSITORY = "https://plugins.qgis.org/plugins/plugins.xml"
+OFFICIAL_REPOSITORY_HOST = "plugins.qgis.org"
+OFFICIAL_REPOSITORY_PATH = "/plugins/plugins.xml"
 MAX_CATALOG_BYTES = 16 * 1024 * 1024
 DEFAULT_CACHE_TTL_SECONDS = 12 * 60 * 60
 PROPOSAL_TTL_SECONDS = 15 * 60
@@ -63,6 +65,57 @@ _CONCEPT_GROUPS = (
     "3d three dimensional scene mesh",
     "web publish server webmap webmapping qgiscloud",
 )
+
+
+class CatalogSecurityError(OSError):
+    """The remote catalog violated a transport or document security boundary."""
+
+
+def _validate_official_catalog_url(url: str) -> str:
+    """Accept only the official HTTPS catalog endpoint and its QGIS query."""
+    try:
+        parsed = urllib.parse.urlsplit(url)
+        port = parsed.port
+        query = urllib.parse.parse_qs(
+            parsed.query,
+            keep_blank_values=True,
+            strict_parsing=True,
+        )
+    except ValueError as exc:
+        raise CatalogSecurityError("Invalid official QGIS plugin catalog URL") from exc
+    if (
+        parsed.scheme.casefold() != "https"
+        or (parsed.hostname or "").casefold() != OFFICIAL_REPOSITORY_HOST
+        or port not in {None, 443}
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path != OFFICIAL_REPOSITORY_PATH
+        or parsed.fragment
+        or set(query) != {"qgis"}
+        or len(query["qgis"]) != 1
+        or re.fullmatch(r"[0-9]+\.[0-9]+", query["qgis"][0]) is None
+    ):
+        raise CatalogSecurityError(
+            "Only the official HTTPS QGIS plugin catalog is allowed"
+        )
+    return url
+
+
+def _safe_xml_text(payload: bytes) -> str:
+    """Decode the bounded catalog and reject every construct that can define entities."""
+    try:
+        text = payload.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise CatalogSecurityError("The QGIS plugin catalog must use UTF-8") from exc
+    if re.search(r"<!\s*(?:DOCTYPE|ENTITY)\b", text, flags=re.IGNORECASE):
+        raise CatalogSecurityError("DTD and entity declarations are not allowed")
+    return text
+
+
+class _OfficialCatalogRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        _validate_official_catalog_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
 def _normalize(value: Any) -> str:
@@ -220,7 +273,12 @@ class PluginCatalog:
             self._write_cache(line, cached)
             self._memory[line] = cached
             return self._snapshot(cached, stale=False, cache_hit=False)
-        except (ET.ParseError, OSError, TimeoutError, urllib.error.URLError) as exc:
+        except (
+            ET.ParseError,
+            OSError,
+            TimeoutError,
+            urllib.error.URLError,
+        ) as exc:
             if not cached:
                 raise OSError("Cannot read the official QGIS plugin repository: {}".format(exc)) from exc
             self._memory[line] = cached
@@ -238,12 +296,15 @@ class PluginCatalog:
 
     @staticmethod
     def _download(url: str, headers: dict[str, str]) -> tuple[int, dict[str, str], bytes]:
+        _validate_official_catalog_url(url)
         request = urllib.request.Request(
             url,
-            headers={**headers, "User-Agent": "qgis-agent-mcp/0.4.9"},
+            headers={**headers, "User-Agent": "qgis-agent-mcp/0.4.8"},
         )
+        opener = urllib.request.build_opener(_OfficialCatalogRedirectHandler())
         try:
-            with urllib.request.urlopen(request, timeout=20) as response:
+            with opener.open(request, timeout=20) as response:
+                _validate_official_catalog_url(response.geturl())
                 length = _integer(response.headers.get("Content-Length"))
                 if length > MAX_CATALOG_BYTES:
                     raise OSError("Official plugin catalog exceeds the size limit")
@@ -262,7 +323,9 @@ class PluginCatalog:
 
     @staticmethod
     def _parse(payload: bytes, qgis_version: str) -> list[dict[str, Any]]:
-        root = ET.fromstring(payload)
+        # ElementTree cannot reach a DTD/entity path after _safe_xml_text rejects
+        # those declarations and enforces UTF-8. The input is also capped at 16 MiB.
+        root = ET.fromstring(_safe_xml_text(payload))  # nosec B314
         if root.tag != "plugins":
             raise ET.ParseError("Unexpected official plugin catalog root")
         best: dict[tuple[str, bool], dict[str, Any]] = {}

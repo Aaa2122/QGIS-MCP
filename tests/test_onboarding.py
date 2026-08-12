@@ -13,6 +13,7 @@ from qgis_agent_mcp.onboarding import (
     MANAGED_BEGIN,
     AntigravityConnector,
     ClaudeCodeConnector,
+    ClaudeDesktopConnector,
     CodexConnector,
     CommandResult,
     CommandRunner,
@@ -173,6 +174,29 @@ def test_codex_refuses_to_overwrite_unmanaged_qgis_entry(tmp_path):
         CodexConnector(home=home).install(launcher_spec(tmp_path))
 
 
+def test_codex_migrates_recognized_legacy_qgis_entry(tmp_path):
+    config = tmp_path / ".codex" / "config.toml"
+    config.parent.mkdir(parents=True)
+    config.write_text(
+        'model = "gpt-test"\n\n'
+        "[mcp_servers.qgis]\n"
+        'command = "uv"\n'
+        'args = ["run", "src/qgis_mcp/qgis_mcp_server.py"]\n',
+        encoding="utf-8",
+    )
+    connector = CodexConnector(home=tmp_path)
+    assert connector.status() == "legacy"
+    message = connector.install(launcher_spec(tmp_path))
+    updated = config.read_text(encoding="utf-8")
+    assert "legacy" in message.casefold()
+    assert 'model = "gpt-test"' in updated
+    assert "qgis_mcp_server.py" not in updated
+    assert updated.count("[mcp_servers.qgis]") == 1
+    assert connector.status() == "configured"
+    backup = next(config.parent.glob("config.toml.qgis-mcp-*.bak"))
+    assert "qgis_mcp_server.py" in backup.read_text(encoding="utf-8")
+
+
 def test_codex_honors_custom_home_and_unusual_unicode_paths(monkeypatch, tmp_path):
     codex_home = tmp_path / "Custom Codex Ω" / "configuration"
     monkeypatch.setenv("CODEX_HOME", str(codex_home))
@@ -293,6 +317,18 @@ def test_claude_repairs_only_recognized_managed_entry(tmp_path):
     assert any("add" in command for command in runner.commands)
 
 
+def test_claude_migrates_recognized_legacy_entry(tmp_path):
+    runner = ExistingClaudeRunner(
+        "command: uv\nargs: run D:\\GitHub\\qgis_mcp\\src\\qgis_mcp\\qgis_mcp_server.py"
+    )
+    connector = ClaudeCodeConnector(executable="claude", runner=runner)
+    assert connector.status() == "legacy"
+    message = connector.install(launcher_spec(tmp_path))
+    assert "migrated" in message
+    assert any("remove" in command for command in runner.commands)
+    assert any("add" in command for command in runner.commands)
+
+
 @pytest.mark.parametrize(
     ("connector_class", "relative_path"),
     [
@@ -336,11 +372,82 @@ def test_json_connector_refuses_invalid_json_and_unmanaged_collision(tmp_path):
     assert config.read_text(encoding="utf-8") == "{invalid"
 
     config.write_text(
-        json.dumps({"mcpServers": {"qgis": {"command": "another-server"}}}),
+        json.dumps(
+            {
+                "mcpServers": {
+                    "qgis": {
+                        "command": "another-server",
+                        "env": {"QGIS_MCP_PORT": "9876"},
+                    }
+                }
+            }
+        ),
         encoding="utf-8",
     )
     with pytest.raises(OnboardingError, match="not created by this plugin"):
         connector.install(launcher_spec(tmp_path))
+
+
+@pytest.mark.parametrize(
+    "connector_class",
+    [ClaudeDesktopConnector, CursorConnector, AntigravityConnector],
+)
+def test_json_connectors_migrate_recognized_legacy_entry(connector_class, tmp_path):
+    config = tmp_path / "client" / "mcp.json"
+    config.parent.mkdir(parents=True)
+    config.write_text(
+        json.dumps(
+            {
+                "theme": "dark",
+                "mcpServers": {
+                    "qgis": {
+                        "command": "uv",
+                        "args": [
+                            "run",
+                            "D:\\GitHub\\qgis_mcp\\src\\qgis_mcp\\qgis_mcp_server.py",
+                        ],
+                        "env": {"QGIS_MCP_PORT": "9876"},
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    connector = connector_class(home=tmp_path, config_path=config)
+    assert connector.status() == "legacy"
+    message = connector.install(launcher_spec(tmp_path))
+    document = json.loads(config.read_text(encoding="utf-8"))
+    assert "migrated" in message
+    assert document["theme"] == "dark"
+    assert document["mcpServers"]["qgis"]["args"][0].endswith(
+        "qgis_mcp_launcher.py"
+    )
+    assert connector.status() == "configured"
+    backup = next(config.parent.glob("mcp.json.qgis-mcp-*.bak"))
+    assert "qgis_mcp_server.py" in backup.read_text(encoding="utf-8")
+
+
+def test_claude_desktop_uses_platform_user_config_location(tmp_path):
+    connector = ClaudeDesktopConnector(home=tmp_path)
+    if sys.platform == "win32":
+        expected = (
+            tmp_path
+            / "AppData"
+            / "Roaming"
+            / "Claude"
+            / "claude_desktop_config.json"
+        )
+    elif sys.platform == "darwin":
+        expected = (
+            tmp_path
+            / "Library"
+            / "Application Support"
+            / "Claude"
+            / "claude_desktop_config.json"
+        )
+    else:
+        expected = tmp_path / ".config" / "Claude" / "claude_desktop_config.json"
+    assert connector.config_path == expected
 
 
 def test_antigravity_keeps_existing_legacy_location(tmp_path):
@@ -398,6 +505,35 @@ def test_opencode_honors_custom_config_and_protects_unmanaged_entry(
     assert connector.config_path == config
     with pytest.raises(OnboardingError, match="not created by this plugin"):
         connector.install(launcher_spec(tmp_path))
+
+
+def test_opencode_migrates_recognized_legacy_entry(tmp_path):
+    config = tmp_path / "opencode.json"
+    config.write_text(
+        json.dumps(
+            {
+                "mcp": {
+                    "qgis": {
+                        "type": "local",
+                        "command": [
+                            "uvx",
+                            "--from",
+                            "https://github.com/nkarasiak/qgis-mcp/archive/main.zip",
+                            "qgis-mcp-server",
+                        ],
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    connector = OpenCodeConnector(home=tmp_path, config_path=config)
+    assert connector.status() == "legacy"
+    message = connector.install(launcher_spec(tmp_path))
+    server = json.loads(config.read_text(encoding="utf-8"))["mcp"]["qgis"]
+    assert "migrated" in message
+    assert server["command"][1].endswith("qgis_mcp_launcher.py")
+    assert connector.status() == "configured"
 
 
 def test_opencode_manual_config_matches_documented_local_format(tmp_path):

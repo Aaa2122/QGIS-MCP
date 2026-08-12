@@ -22,6 +22,7 @@ from qgis.PyQt.QtWidgets import (
 from .onboarding import (
     AntigravityConnector,
     ClaudeCodeConnector,
+    ClaudeDesktopConnector,
     CodexConnector,
     CursorConnector,
     OnboardingError,
@@ -36,13 +37,14 @@ class ConnectAiDialog(QDialog):
     def __init__(self, plugin_dir, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Connect an AI client")
-        self.setMinimumSize(600, 390)
-        self.resize(650, 410)
+        self.setMinimumSize(600, 420)
+        self.resize(650, 440)
         self.spec = None
         self.clients = {
             "opencode": OpenCodeConnector(),
             "codex": CodexConnector(),
             "claude": ClaudeCodeConnector(),
+            "claude_desktop": ClaudeDesktopConnector(),
             "cursor": CursorConnector(),
             "antigravity": AntigravityConnector(),
         }
@@ -130,7 +132,9 @@ class ConnectAiDialog(QDialog):
         visible_grid.addWidget(QLabel("<b>AI client</b>"), 0, 0)
         visible_grid.addWidget(QLabel("<b>Status</b>"), 0, 1)
         visible_grid.addWidget(QLabel("<b>Actions</b>"), 0, 2)
-        for row, key in enumerate(("opencode", "codex", "claude"), start=1):
+        for row, key in enumerate(
+            ("opencode", "codex", "claude", "claude_desktop"), start=1
+        ):
             self._add_client_row(visible_grid, row, key)
         visible_grid.setColumnStretch(0, 1)
         visible_grid.setColumnStretch(2, 2)
@@ -253,6 +257,8 @@ class ConnectAiDialog(QDialog):
 
         if status == "configured":
             text, style = "✓ Connected", "success"
+        elif status == "legacy":
+            text, style = "Legacy config", "warning"
         elif status == "conflict":
             text, style = "Needs attention", "error"
         elif status == "error":
@@ -273,6 +279,11 @@ class ConnectAiDialog(QDialog):
         tooltip = connector.description
         if location:
             tooltip += "\n{}".format(location)
+        if status == "legacy":
+            tooltip += (
+                "\nA known legacy qgis-mcp entry will be backed up and migrated "
+                "when you select Migrate."
+            )
         status_label.setToolTip(tooltip)
         self._connect_buttons[key].setToolTip(tooltip)
 
@@ -280,6 +291,9 @@ class ConnectAiDialog(QDialog):
             not connector.requires_executable or detected
         )
         self._connect_buttons[key].setEnabled(can_connect)
+        self._connect_buttons[key].setText(
+            "Migrate" if status == "legacy" else "Connect"
+        )
         self._disconnect_buttons[key].setEnabled(status == "configured")
 
     def _selected_connector(self):

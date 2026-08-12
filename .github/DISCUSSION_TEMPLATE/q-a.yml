@@ -8,7 +8,7 @@ body:
     id: environment
     attributes:
       label: Environment
-      placeholder: "QGIS 3.44.12, Windows 11, plugin 0.4.9, Codex"
+      placeholder: "QGIS 3.44.12, Windows 11, plugin 0.4.8, Codex"
     validations:
       required: true
   - type: textarea

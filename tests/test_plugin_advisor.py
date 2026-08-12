@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from qgis_mcp.plugin_advisor import PluginAdvisor, PluginCatalog
+import qgis_mcp.plugin_advisor as plugin_advisor
+from qgis_mcp.plugin_advisor import CatalogSecurityError, PluginAdvisor, PluginCatalog
 
 CATALOG_XML = b"""<?xml version="1.0" encoding="UTF-8"?>
 <plugins>
@@ -89,6 +90,62 @@ def _catalog(tmp_path):
         return 200, {"etag": '"fixture"'}, CATALOG_XML
 
     return PluginCatalog(tmp_path, fetcher=fetcher), calls
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://plugins.qgis.org/plugins/plugins.xml?qgis=3.44",
+        "https://example.test/plugins/plugins.xml?qgis=3.44",
+        "file:///plugins/plugins.xml?qgis=3.44",
+        "https://plugins.qgis.org/other.xml?qgis=3.44",
+        "https://user:password@plugins.qgis.org/plugins/plugins.xml?qgis=3.44",
+    ],
+)
+def test_catalog_download_rejects_non_official_urls(url):
+    with pytest.raises(OSError, match="official|Invalid"):
+        PluginCatalog._download(url, {})
+
+
+def test_catalog_download_rejects_cross_origin_final_url(monkeypatch):
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def geturl(self):
+            return "https://example.test/plugins/plugins.xml?qgis=3.44"
+
+    class Opener:
+        def open(self, _request, *, timeout):
+            assert timeout == 20
+            return Response()
+
+    monkeypatch.setattr(
+        plugin_advisor.urllib.request,
+        "build_opener",
+        lambda *_handlers: Opener(),
+    )
+    with pytest.raises(OSError, match="official"):
+        PluginCatalog._download(
+            "https://plugins.qgis.org/plugins/plugins.xml?qgis=3.44",
+            {},
+        )
+
+
+def test_catalog_parser_rejects_dtds_and_entities():
+    malicious = b"""<!DOCTYPE plugins [<!ENTITY payload "unsafe">]>
+<plugins><pyqgis_plugin name="&payload;" version="1.0" /></plugins>"""
+    with pytest.raises(CatalogSecurityError, match="DTD and entity"):
+        PluginCatalog._parse(malicious, "3.44.12")
+
+
+def test_catalog_parser_rejects_non_utf8_documents():
+    encoded = "<?xml version='1.0'?><plugins />".encode("utf-16")
+    with pytest.raises(CatalogSecurityError, match="UTF-8"):
+        PluginCatalog._parse(encoded, "3.44.12")
 
 
 def test_official_catalog_is_cached_deduplicated_and_compatibility_filtered(tmp_path):

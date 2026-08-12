@@ -8,7 +8,7 @@ import threading
 import pytest
 
 from qgis_mcp.bridge import BridgeClient
-from qgis_mcp.config import ConnectionInfo
+from qgis_mcp.config import ConnectionInfo, ConnectionInfoError
 from qgis_mcp.errors import RpcError
 
 
@@ -93,6 +93,38 @@ async def test_bridge_auth_multiplexing_error_and_event():
         await client.close()
         server.shutdown()
         server.server_close()
+
+
+@pytest.mark.asyncio
+async def test_missing_bridge_registration_is_not_hidden_by_generic_error(monkeypatch):
+    def missing():
+        raise ConnectionInfoError(
+            "QGIS Agent MCP bridge registration was not found; check the active "
+            "QGIS profile and the qgis_mcp_launcher.py client entry.",
+            reason="registration_missing",
+        )
+
+    monkeypatch.setattr("qgis_mcp.bridge.load_connection_info", missing)
+    client = BridgeClient(reconnect_timeout=0)
+    with pytest.raises(RpcError) as captured:
+        await client.connect()
+    assert "active QGIS profile" in captured.value.message
+    assert "qgis_mcp_launcher.py" in captured.value.message
+    assert captured.value.data["reason"] == "registration_missing"
+
+
+@pytest.mark.asyncio
+async def test_registered_but_unreachable_bridge_has_distinct_error():
+    server = _BridgeTestServer(("127.0.0.1", 0), _BridgeRequestHandler)
+    port = server.server_address[1]
+    server.server_close()
+    client = BridgeClient(ConnectionInfo("127.0.0.1", port, "z" * 64, pid=42))
+    with pytest.raises(RpcError) as captured:
+        await client.connect()
+    assert "found a bridge registration" in captured.value.message
+    assert "not accepting connections" in captured.value.message
+    assert captured.value.data["reason"] == "registered_bridge_unreachable"
+    assert captured.value.data["pid"] == 42
 
 
 @pytest.mark.asyncio

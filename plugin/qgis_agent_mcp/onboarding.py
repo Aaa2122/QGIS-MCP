@@ -293,7 +293,12 @@ class CodexConnector:
         has_end = MANAGED_END in text
         if has_begin != has_end:
             return "conflict"
-        return "configured" if has_begin else "not_configured"
+        unmanaged = _codex_qgis_section(_remove_managed_block(text))
+        if has_begin:
+            return "conflict" if unmanaged else "configured"
+        if unmanaged is None:
+            return "not_configured"
+        return "legacy" if _looks_like_legacy_qgis_mcp(unmanaged[2]) else "conflict"
 
     def install(self, spec):
         command = _toml_string(spec.command)
@@ -305,7 +310,12 @@ class CodexConnector:
             "args = [{}]\n"
             "{}"
         ).format(MANAGED_BEGIN, SERVER_NAME, command, args, MANAGED_END)
-        _update_codex_config(self.config_path, block)
+        migrated = _update_codex_config(self.config_path, block)
+        if migrated:
+            return (
+                "Codex legacy QGIS MCP configuration was backed up and migrated "
+                "to QGIS Agent MCP. Restart the Codex app, CLI, or IDE extension."
+            )
         return (
             "Codex configured for the current user. Restart the Codex app, CLI, "
             "or IDE extension if it is already open."
@@ -403,7 +413,9 @@ class ClaudeCodeConnector:
         if result.returncode != 0:
             return "not_configured"
         details = "{}\n{}".format(result.stdout, result.stderr)
-        return "configured" if _looks_like_managed_launcher(details) else "conflict"
+        if _looks_like_managed_launcher(details):
+            return "configured"
+        return "legacy" if _looks_like_legacy_qgis_mcp(details) else "conflict"
 
     def install(self, spec):
         if not self.detected():
@@ -414,12 +426,17 @@ class ClaudeCodeConnector:
         existing = self.runner.run(
             [self.executable, "mcp", "get", SERVER_NAME], timeout=15
         )
+        migrated = False
         if existing.returncode == 0:
             existing_details = "{}\n{}".format(existing.stdout, existing.stderr)
-            if not _looks_like_managed_launcher(existing_details):
+            managed = _looks_like_managed_launcher(existing_details)
+            migrated = _looks_like_legacy_qgis_mcp(existing_details)
+            if not managed and not migrated:
                 raise OnboardingError(
                     "Claude Code already contains a QGIS server that was not "
-                    "created by this plugin. Remove or rename it before connecting."
+                    "created by this plugin and is not a recognized legacy QGIS MCP "
+                    "entry. It was left unchanged; remove or rename it before "
+                    "connecting."
                 )
             removed = self.runner.run(
                 [
@@ -455,6 +472,11 @@ class ClaudeCodeConnector:
                 "Claude Code could not be configured: {}".format(
                     _result_message(result)
                 )
+            )
+        if migrated:
+            return (
+                "Claude Code legacy QGIS MCP configuration was migrated to QGIS "
+                "Agent MCP. Start a new session or open /mcp to verify it."
             )
         return (
             "Claude Code configured for the current user. Start a new session or "
@@ -522,22 +544,35 @@ class JsonFileConnector:
         server = document.get("mcpServers", {}).get(SERVER_NAME)
         if server is None:
             return "not_configured"
-        return "configured" if _looks_like_managed_server(server) else "conflict"
+        if _looks_like_managed_server(server):
+            return "configured"
+        return "legacy" if _looks_like_legacy_qgis_mcp(server) else "conflict"
 
     def install(self, spec):
         document = self._read_document()
         servers = document.setdefault("mcpServers", {})
         existing = servers.get(SERVER_NAME)
-        if existing is not None and not _looks_like_managed_server(existing):
+        migrated = existing is not None and _looks_like_legacy_qgis_mcp(existing)
+        if (
+            existing is not None
+            and not _looks_like_managed_server(existing)
+            and not migrated
+        ):
             raise OnboardingError(
                 "{} already contains a QGIS MCP entry that was not created by "
-                "this plugin. Remove or rename it before connecting.".format(self.name)
+                "this plugin and is not a recognized legacy entry. It was left "
+                "unchanged; remove or rename it before connecting.".format(self.name)
             )
         servers[SERVER_NAME] = _json_stdio_server(spec)
         _backup_and_write(
             self.config_path,
             json.dumps(document, ensure_ascii=False, indent=2) + "\n",
         )
+        if migrated:
+            return (
+                "{} legacy QGIS MCP configuration was backed up and migrated to "
+                "QGIS Agent MCP.".format(self.name)
+            )
         return "{} configured for the current user.".format(self.name)
 
     def remove(self):
@@ -612,6 +647,48 @@ class CursorConnector(JsonFileConnector):
             config_path or home_path / ".cursor" / "mcp.json",
             home=home_path,
         )
+
+
+class ClaudeDesktopConnector(JsonFileConnector):
+    name = "Claude Desktop"
+    description = "Claude Desktop app (separate from Claude Code)"
+    restart_hint = (
+        "Quit every Claude Desktop window, including its tray process, then reopen "
+        "Claude Desktop. QGIS should appear in its MCP integrations."
+    )
+
+    def manual_help(self):
+        return (
+            "Claude Desktop MCP configuration:\n{}\n\nClaude Desktop and Claude "
+            "Code use separate configuration stores. Use 'Copy manual config' only "
+            "for Claude Desktop, merge the qgis entry under mcpServers, then fully "
+            "quit and reopen the desktop app."
+        ).format(self.config_path)
+
+    def __init__(self, home=None, config_path=None):
+        home_path = Path(home).expanduser() if home else Path.home()
+        if config_path is None:
+            if sys.platform == "win32":
+                configured_appdata = os.environ.get("APPDATA") if home is None else None
+                appdata = (
+                    Path(configured_appdata).expanduser()
+                    if configured_appdata
+                    else home_path / "AppData" / "Roaming"
+                )
+                config_path = appdata / "Claude" / "claude_desktop_config.json"
+            elif sys.platform == "darwin":
+                config_path = (
+                    home_path
+                    / "Library"
+                    / "Application Support"
+                    / "Claude"
+                    / "claude_desktop_config.json"
+                )
+            else:
+                config_path = (
+                    home_path / ".config" / "Claude" / "claude_desktop_config.json"
+                )
+        super().__init__(config_path, home=home_path)
 
 
 class AntigravityConnector(JsonFileConnector):
@@ -708,7 +785,9 @@ class OpenCodeConnector(JsonFileConnector):
         server = servers.get(SERVER_NAME) if servers else None
         if server is None:
             return "not_configured"
-        return "configured" if _looks_like_opencode_server(server) else "conflict"
+        if _looks_like_opencode_server(server):
+            return "configured"
+        return "legacy" if _looks_like_legacy_qgis_mcp(server) else "conflict"
 
     def install(self, spec):
         document = self._read_document()
@@ -719,10 +798,16 @@ class OpenCodeConnector(JsonFileConnector):
                 "unchanged: {}".format(self.config_path)
             )
         existing = servers.get(SERVER_NAME)
-        if existing is not None and not _looks_like_opencode_server(existing):
+        migrated = existing is not None and _looks_like_legacy_qgis_mcp(existing)
+        if (
+            existing is not None
+            and not _looks_like_opencode_server(existing)
+            and not migrated
+        ):
             raise OnboardingError(
                 "OpenCode already contains a QGIS MCP entry that was not created "
-                "by this plugin. Remove or rename it before connecting."
+                "by this plugin and is not a recognized legacy entry. It was left "
+                "unchanged; remove or rename it before connecting."
             )
         document.setdefault("$schema", "https://opencode.ai/config.json")
         servers[SERVER_NAME] = {
@@ -735,6 +820,11 @@ class OpenCodeConnector(JsonFileConnector):
             self.config_path,
             json.dumps(document, ensure_ascii=False, indent=2) + "\n",
         )
+        if migrated:
+            return (
+                "OpenCode legacy QGIS MCP configuration was backed up and migrated "
+                "to QGIS Agent MCP."
+            )
         return "OpenCode configured for the current user."
 
     def remove(self):
@@ -775,7 +865,7 @@ def health_check(spec, timeout=15, event_pump=None):
             "params": {
                 "protocolVersion": "2025-11-25",
                 "capabilities": {},
-                "clientInfo": {"name": "qgis-onboarding", "version": "0.4.9"},
+                "clientInfo": {"name": "qgis-onboarding", "version": "0.4.8"},
             },
         },
         {
@@ -834,24 +924,47 @@ def _update_codex_config(path, block):
     path = Path(path)
     text = _read_text(path, "Codex") if path.is_file() else ""
     without_managed = _remove_managed_block(text)
-    section = re.compile(
-        r"""(?mx)^\s*\[
-        \s*mcp_servers\s*\.\s*
-        (?:qgis|"qgis"|'qgis')
-        \s*\]\s*$
-        """
-    )
-    if section.search(without_managed):
-        raise OnboardingError(
-            "Codex already contains a QGIS MCP configuration that was not created "
-            "by this plugin. Remove or rename that entry before connecting."
-        )
+    existing = _codex_qgis_section(without_managed)
+    migrated = False
+    if existing is not None:
+        start, end, section_text = existing
+        if not _looks_like_legacy_qgis_mcp(section_text):
+            raise OnboardingError(
+                "Codex already contains a QGIS MCP configuration that was not "
+                "created by this plugin and is not a recognized legacy entry. It "
+                "was left unchanged; remove or rename it before connecting."
+            )
+        without_managed = without_managed[:start] + without_managed[end:]
+        migrated = True
     updated = without_managed.rstrip()
     if updated:
         updated += "\n\n"
     updated += block + "\n"
     if updated != text:
         _backup_and_write(path, updated)
+    return migrated
+
+
+def _codex_qgis_section(text):
+    root = re.compile(
+        r"""(?mx)^[ \t]*\[
+        \s*mcp_servers\s*\.\s*
+        (?:qgis|"qgis"|'qgis')
+        \s*\][ \t]*(?:\#.*)?$
+        """
+    ).search(text)
+    if root is None:
+        return None
+    end = len(text)
+    headers = re.compile(r"(?m)^[ \t]*\[\[?[^\]\r\n]+\]\]?[ \t]*(?:\#.*)?$")
+    for header in headers.finditer(text, root.end()):
+        key = header.group(0).strip().lstrip("[").rstrip("]").strip()
+        normalized = re.sub(r"[\s\"']+", "", key).casefold()
+        if normalized.startswith("mcp_servers.qgis."):
+            continue
+        end = header.start()
+        break
+    return root.start(), end, text[root.start() : end]
 
 
 def _remove_managed_block(text):
@@ -964,6 +1077,21 @@ def _looks_like_opencode_server(server):
 def _looks_like_managed_launcher(value):
     normalized = str(value).replace("\\", "/").casefold()
     return "qgis_mcp_launcher.py" in normalized and "/.qgis-mcp/" in normalized
+
+
+def _looks_like_legacy_qgis_mcp(value):
+    try:
+        serialized = json.dumps(value, ensure_ascii=False, sort_keys=True)
+    except (TypeError, ValueError):
+        serialized = str(value)
+    normalized = serialized.replace("\\\\", "/").replace("\\", "/").casefold()
+    signatures = (
+        "github.com/nkarasiak/qgis-mcp",
+        "qgis_mcp_server.py",
+        "qgis-mcp-server",
+        "src/qgis_mcp/server.py",
+    )
+    return any(signature in normalized for signature in signatures)
 
 
 def _toml_string(value):

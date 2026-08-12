@@ -32,6 +32,10 @@ def test_connection_rejects_non_loopback(host):
 
 
 def test_missing_connection_file_has_actionable_error(tmp_path):
-    with pytest.raises(RuntimeError, match="Start QGIS"):
+    with pytest.raises(RuntimeError) as captured:
         load_connection_info(tmp_path / "missing.json")
-
+    message = str(captured.value)
+    assert "bridge registration was not found" in message
+    assert "active profile" in message
+    assert "qgis_mcp_launcher.py" in message
+    assert "Start QGIS" in message

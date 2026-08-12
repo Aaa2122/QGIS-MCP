@@ -9,6 +9,12 @@ from typing import Any
 DEFAULT_CONNECTION_FILE = Path.home() / ".qgis-mcp" / "connection.json"
 
 
+class ConnectionInfoError(RuntimeError):
+    def __init__(self, message: str, *, reason: str) -> None:
+        super().__init__(message)
+        self.reason = reason
+
+
 @dataclass(frozen=True)
 class ConnectionInfo:
     host: str
@@ -49,11 +55,28 @@ def load_connection_info(path: Path | None = None) -> ConnectionInfo:
     try:
         raw = json.loads(target.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
-        raise RuntimeError(
-            f"QGIS bridge connection file not found at {target}. "
-            "Start QGIS and enable the QGIS Agent MCP plugin."
+        raise ConnectionInfoError(
+            f"QGIS Agent MCP bridge registration was not found at {target}. "
+            "If QGIS is open, QGIS Agent MCP is missing from the active profile, "
+            "disabled, or not started; open Plugins > Manage and Install Plugins, "
+            "then start QGIS Agent MCP. If the plugin is already active, "
+            "use Connect / Repair and verify that the MCP client launches "
+            "~/.qgis-mcp/bin/qgis_mcp_launcher.py rather than a legacy qgis-mcp "
+            "server. Start QGIS if it is currently closed.",
+            reason="registration_missing",
         ) from exc
     except (OSError, json.JSONDecodeError) as exc:
-        raise RuntimeError(f"Cannot read QGIS bridge connection file {target}: {exc}") from exc
-    return ConnectionInfo.from_dict(raw)
+        raise ConnectionInfoError(
+            f"QGIS Agent MCP bridge registration at {target} is unreadable: {exc}. "
+            "Restart the plugin to recreate it.",
+            reason="registration_unreadable",
+        ) from exc
+    try:
+        return ConnectionInfo.from_dict(raw)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ConnectionInfoError(
+            f"QGIS Agent MCP bridge registration at {target} is invalid: {exc}. "
+            "Restart the plugin to recreate it.",
+            reason="registration_invalid",
+        ) from exc
 

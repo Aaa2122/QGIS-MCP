@@ -31,11 +31,14 @@ QGIS_BLOCKING_BANDIT_RULES = {
     "B305",
     "B306",
     "B307",
+    "B310",
     "B312",
+    "B314",
     "B321",
     "B323",
     "B401",
     "B402",
+    "B405",
     "B412",
     "B413",
     "B501",
@@ -110,7 +113,16 @@ def scan_package(package: Path) -> list[str]:
         plugin_root = temporary_path / root_name
 
         bandit = _run(
-            [sys.executable, "-m", "bandit", "-r", str(plugin_root), "-f", "json"]
+            [
+                sys.executable,
+                "-m",
+                "bandit",
+                "-q",
+                "-r",
+                str(plugin_root),
+                "-f",
+                "json",
+            ]
         )
         try:
             bandit_data = json.loads(bandit.stdout)

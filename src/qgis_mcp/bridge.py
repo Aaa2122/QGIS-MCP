@@ -8,7 +8,7 @@ import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from .config import ConnectionInfo, load_connection_info
+from .config import ConnectionInfo, ConnectionInfoError, load_connection_info
 from .errors import BRIDGE_ERROR, BRIDGE_UNAVAILABLE, RpcError
 
 LOGGER = logging.getLogger(__name__)
@@ -76,14 +76,27 @@ class BridgeClient:
                 return
             try:
                 info = self._info if self._fixed_info else load_connection_info()
+            except ConnectionInfoError as exc:
+                raise RpcError(
+                    BRIDGE_UNAVAILABLE,
+                    str(exc),
+                    {"reason": exc.reason, "cause": str(exc)},
+                ) from exc
             except (OSError, RuntimeError, TypeError, ValueError) as exc:
                 raise RpcError(
                     BRIDGE_UNAVAILABLE,
-                    "Waiting for the QGIS plugin bridge",
-                    {"cause": str(exc)},
+                    "QGIS Agent MCP could not load the bridge registration: {}".format(
+                        exc
+                    ),
+                    {"reason": "registration_unavailable", "cause": str(exc)},
                 ) from exc
             if info is None:
-                raise RpcError(BRIDGE_UNAVAILABLE, "QGIS bridge connection is unavailable")
+                raise RpcError(
+                    BRIDGE_UNAVAILABLE,
+                    "QGIS Agent MCP bridge registration is unavailable. Start QGIS "
+                    "and enable and start the QGIS Agent MCP plugin.",
+                    {"reason": "registration_unavailable"},
+                )
             self._info = info
             try:
                 reader, writer = await asyncio.open_connection(
@@ -92,8 +105,17 @@ class BridgeClient:
             except (OSError, asyncio.TimeoutError) as exc:
                 raise RpcError(
                     BRIDGE_UNAVAILABLE,
-                    "Cannot connect to the QGIS plugin bridge",
-                    {"host": info.host, "port": info.port, "cause": str(exc)},
+                    "QGIS Agent MCP found a bridge registration at {}:{}, but the "
+                    "plugin bridge is not accepting connections. QGIS may have "
+                    "closed since registration, or the plugin was stopped or "
+                    "reloaded; start QGIS Agent MCP again.".format(info.host, info.port),
+                    {
+                        "reason": "registered_bridge_unreachable",
+                        "host": info.host,
+                        "port": info.port,
+                        "pid": info.pid,
+                        "cause": str(exc),
+                    },
                 ) from exc
             self._reader = reader
             self._writer = writer
@@ -215,7 +237,9 @@ class BridgeClient:
             delay = min(self._reconnect_max_delay, delay * 2)
         raise RpcError(
             BRIDGE_UNAVAILABLE,
-            "QGIS did not reconnect before the recovery deadline",
+            "QGIS Agent MCP did not reconnect before the recovery deadline: {}".format(
+                last_error.message
+            ),
             {
                 "method": method,
                 "attempts": attempts,

@@ -16,7 +16,7 @@ Connect AI agents to a live QGIS Desktop session through a secure local MCP brid
 - **100+ specialist QGIS tools** across projects, vector, raster, Processing, databases, cartography, layouts, 3D, point clouds and more.
 - **Low context cost:** only 7 core/discovery tools are loaded by default; `qgis_context` assembles the relevant project state, schemas and live capabilities under a strict byte budget.
 - **Task-aware plugin advisor:** checks native QGIS and installed plugins before ranking up to three compatible candidates from the official repository; installation requires an explicit, short-lived confirmation proposal.
-- **One-click connection:** safely configure open-source OpenCode, Codex, Claude Code, Cursor or Google Antigravity directly from QGIS, with a universal MCP configuration for other clients.
+- **One-click connection:** safely configure OpenCode, Codex, Claude Code, Claude Desktop, Cursor or Google Antigravity directly from QGIS, with a universal MCP configuration for other clients.
 - **Safe autonomy:** revision guards, idempotency, checkpoints, atomic workflows and recovery after a QGIS restart.
 - **Visual review:** agents can inspect rendered maps, apply bounded corrections and review the result again.
 - **Local by design:** authenticated loopback transport; project data stays inside QGIS.
@@ -29,6 +29,12 @@ Connect AI agents to a live QGIS Desktop session through a secure local MCP brid
 4. Select **Connect / Repair** for your AI client, follow the displayed restart guidance, then reopen the client.
 
 No port, token or configuration file needs to be copied manually.
+
+**Migrating from another QGIS MCP plugin:** **Connect / Repair** recognizes known
+`nkarasiak/qgis-mcp` entries, backs up the affected client configuration and replaces
+only its `qgis` server entry. Claude Code and Claude Desktop are separate clients;
+select the row for the application you actually use. An unrelated server named `qgis`
+is never overwritten automatically.
 
 ## Try it
 
@@ -78,14 +84,14 @@ The bridge accepts only authenticated local connections and does not expose arbi
 ## Compatibility
 
 - QGIS 3.44 LTR through QGIS 4.x (Qt 5 and Qt 6)
-- OpenCode, Codex, Claude Code, Cursor, Google Antigravity and standard stdio MCP clients
+- OpenCode, Codex, Claude Code, Claude Desktop, Cursor, Google Antigravity and standard stdio MCP clients
 - No external Python runtime dependency in the packaged plugin
 - Validated on QGIS LTR 3.44.12 and QGIS 4.2/Qt 6 with live integration scenarios
 
 ### Runtime reliability notes
 
-- The 0.4.9 package is declared for QGIS 3.44 through 4.x and is a dual-era MCP server: it supports stateless MCP 2026-07-28 requests while preserving initialization-based clients through 2025-11-25 and earlier revisions.
-- MCP 0.4.9 keeps tool and result context bounded: `qgis_context` merges a revisioned snapshot, confidence-ranked schemas and live Processing matches into one 2–32 KiB context pack; adaptive discovery expands only the best one or two schemas.
+- The 0.4.8 package is declared for QGIS 3.44 through 4.x and is a dual-era MCP server: it supports stateless MCP 2026-07-28 requests while preserving initialization-based clients through 2025-11-25 and earlier revisions.
+- MCP 0.4.8 keeps tool and result context bounded: `qgis_context` merges a revisioned snapshot, confidence-ranked schemas and live Processing matches into one 2–32 KiB context pack; adaptive discovery expands only the best one or two schemas.
 - Negotiated MCP Tasks make long verification, visual review, workflow and batch calls durable and pollable. Declarative batches can reference prior outputs, project JSON Pointer slices and retain intermediates as summaries or handles without arbitrary code execution.
 - Mutation diagnostics use a crash-resilient append-only journal with periodic compaction instead of rewriting the complete diagnostic state twice for every call.
 - Plugin recommendations use a cached, compatibility-filtered index of the official QGIS repository. Native and already-installed capabilities are preferred; deprecated plugins are excluded, experimental plugins are opt-in, and untrusted candidates require additional confirmation.
